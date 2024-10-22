@@ -117,11 +117,44 @@ type User struct {
 	// this struct's methods, but you DON'T want that value to be included in the serialized value
 	// of this struct that's stored in datastore, then you can use a "private" variable (e.g. one that
 	// begins with a lowercase letter).
+	Password  string
+	DSSignKey userlib.DSSignKey
+	PKEDecKey userlib.PKEDecKey
+	SourceKey []byte // from slow hash password, use to derived other key
 }
 
 // NOTE: The following methods have toy (insecure!) implementations.
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
+	// // check for empty username error
+	// if username == "" {
+	// 	err = errors.New("username cannot be empty error")
+	// 	return nil, err
+	// }
+
+	// // check for username existed error
+	// user_struct_uuid := usernameToUUID(username, "/user-struct")
+	// _, ok := userlib.DatastoreGet(user_struct_uuid)
+	// if ok {
+	// 	err = errors.New("user existed error")
+	// 	return nil, err
+	// }
+
+	// /* ######## Creating new user ######## */
+
+	// // Link username password
+	// temp_uuid := usernameToUUID(username, "/password")
+	// argon2_password := createSourceKey(username, password)
+	// enc_argon2_password := userlib.SymEnc([]byte(password), userlib.RandomBytes(16), argon2_password)
+	// hmac_argon2_password, err := userlib.HMACEval([]byte(password), enc_argon2_password)
+	// if err != nil {
+	// 	return nil, errors.New("hmac argon2 password error: " + err.Error())
+	// }
+	// // ask abt this
+	// temp_arr := append(enc_argon2_password, hmac_argon2_password...)
+	// fmt.Println(temp_uuid, temp_arr)
+	// // userlib.DatastoreSet(temp_uuid)
+
 	var userdata User
 	userdata.Username = username
 	return &userdata, nil
@@ -174,4 +207,74 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
 	return nil
+}
+
+// ....... Helper Functions .........//
+
+func usernameToUUID(username string, purpose string) uuid.UUID {
+	/*
+		usernameToUUID generates a UUID based on the provided `username` and `purpose`.
+		It uses the `userlib.Hash` function to hash the concatenation of `username` and `purpose`,
+		then converts the hash bytes to a UUID. If any error occurs during the conversion process,
+		it panics with an error message.
+
+		Parameters:
+		- `username`: the username to be used in generating the UUID.
+		- `purpose`: a string indicating the purpose for generating the UUID.
+
+		Returns:
+		- A UUID generated based on the `username` and `purpose`.
+	*/
+
+	/*
+		    hash := userlib.Hash([]byte("user-structs/alice"))
+			deterministicUUID, err := uuid.FromBytes(hash[:16])
+			if err != nil {
+				// Normally, we would `return err` here. But, since this function doesn't return anything,
+				// we can just panic to terminate execution. ALWAYS, ALWAYS, ALWAYS check for errors! Your
+				// code should have hundreds of "if err != nil { return err }" statements by the end of this
+				// project. You probably want to avoid using panic statements in your own code.
+				panic(errors.New("An error occurred while generating a UUID: " + err.Error()))
+			}
+			userlib.DebugMsg("Deterministic UUID: %v", deterministicUUID.String())
+	*/
+	hash := userlib.Hash([]byte(username + purpose))
+	result, err := uuid.FromBytes(hash[:16])
+	if err != nil {
+		panic(errors.New("Error occurs when converting username to UUID: " + err.Error()))
+	}
+	return result
+}
+
+func createSourceKey(username string, password string) []byte {
+	/**
+	 * createSourceKey generates a source key based on the provided username and password using Argon2 key derivation.
+	 *
+	 * @param username The username used as part of the key generation.
+	 * @param password The password used as part of the key generation.
+	 * @return []byte The generated source key.
+	 */
+	result := userlib.Argon2Key([]byte(password), []byte(username), 16)
+	return result
+}
+
+func symEncPassword(password string, argon2_password []byte) []byte {
+	/**
+	 * This function symmetrically encrypt argon2_password using the plain password as key
+	 *
+	 * Parameters:
+	 * - password: The password to be encrypted.
+	 * - argon2_password: The Argon2 hashed password used for encryption key derivation.
+	 *
+	 * Returns:
+	 * - Encrypted password as a byte slice.
+	 */
+	result := userlib.SymEnc([]byte(password), userlib.RandomBytes(16), argon2_password)
+	return result
+}
+
+func hmacPassword(password string, enc_argon2_password []byte) []byte {
+	result, _ := userlib.HMACEval([]byte(password), enc_argon2_password)
+
+	return result
 }
