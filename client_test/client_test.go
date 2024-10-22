@@ -132,6 +132,29 @@ var _ = Describe("Client Tests", func() {
 			_, err = client.GetUser("alice", defaultPassword)
 			Expect(err).ToNot(BeNil())
 		})
+
+		Specify("Get correct user", func() {
+			userlib.DebugMsg("Initializing user Alice")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Get alice from the database")
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			Expect(alice.Username).To(Equal(aliceLaptop.Username))
+		})
+	})
+
+	Describe("File Operation test", func() {
+		Specify("Test loading none existed file", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Loading none existed file")
+			_, err = alice.LoadFile(aliceFile)
+			Expect(err).ToNot(BeNil())
+		})
 	})
 
 	Describe("Basic Tests", func() {
