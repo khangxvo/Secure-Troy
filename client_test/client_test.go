@@ -85,6 +85,24 @@ var _ = Describe("Client Tests", func() {
 		userlib.KeystoreClear()
 	})
 
+	Describe("InitUser Test", func() {
+		Specify("Testing username is empty", func() {
+			userlib.DebugMsg("Inializing empty username.")
+			_, err := client.InitUser(emptyString, defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Testing username is exited", func() {
+			userlib.DebugMsg("Intializing user Alice.")
+			_, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Attempt to create user Alice again.")
+			_, err = client.InitUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+	})
+
 	Describe("Basic Tests", func() {
 
 		Specify("Basic Test: Testing InitUser/GetUser on a single user.", func() {
