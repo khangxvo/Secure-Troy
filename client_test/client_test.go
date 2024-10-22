@@ -141,7 +141,7 @@ var _ = Describe("Client Tests", func() {
 			userlib.DebugMsg("Get alice from the database")
 			aliceLaptop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
-			Expect(alice.Username).To(Equal(aliceLaptop.Username))
+			Expect(alice.Username).To(Equal([]byte(aliceLaptop.Username)))
 		})
 	})
 
@@ -189,7 +189,7 @@ var _ = Describe("Client Tests", func() {
 			userlib.DebugMsg("Loading file...")
 			data, err := alice.LoadFile(aliceFile)
 			Expect(err).ToNot(BeNil())
-			Expect(data).To(Equal(contentTwo))
+			Expect(data).To(Equal([]byte(contentTwo)))
 		})
 	})
 
