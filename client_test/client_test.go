@@ -103,6 +103,37 @@ var _ = Describe("Client Tests", func() {
 		})
 	})
 
+	Describe("GetUser Test", func() {
+		Specify("Test getting unintialized user", func() {
+			userlib.DebugMsg("Getting none existed Alice")
+			_, err := client.GetUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Test providing inccorect password", func() {
+			userlib.DebugMsg("Initializing user Alice")
+			_, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Getting Alice with wrong password")
+			_, err = client.GetUser("alice", "incorrect_password")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Test tamper user-struct", func() {
+			userlib.DebugMsg("Initializing user Alice")
+			_, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Tamper alice-struct")
+			userlib.DatastoreClear()
+
+			userlib.DebugMsg("Getting Alice after getting tampered")
+			_, err = client.GetUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+	})
+
 	Describe("Basic Tests", func() {
 
 		Specify("Basic Test: Testing InitUser/GetUser on a single user.", func() {
