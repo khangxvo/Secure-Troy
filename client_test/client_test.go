@@ -141,7 +141,7 @@ var _ = Describe("Client Tests", func() {
 			userlib.DebugMsg("Get alice from the database")
 			aliceLaptop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
-			Expect(alice.Username).To(Equal([]byte(aliceLaptop.Username)))
+			Expect(alice.Username).To(Equal(aliceLaptop.Username))
 		})
 	})
 
