@@ -301,6 +301,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 
 type FileStruct struct {
 	Owner     string
+	HmacOwner []byte
 	FileHead  uuid.UUID
 	FileTail  uuid.UUID
 	SymEncKey []byte
@@ -308,73 +309,45 @@ type FileStruct struct {
 }
 
 type FileContent struct {
-	Content  []byte
-	NextUUID uuid.UUID
+	EncContent  []byte
+	HMACContent []byte
+	NextUUID    uuid.UUID
+	HMACnext    []byte
 }
 
 type Invite struct {
-	Owner     string
-	Guest     string
-	SymDecKey string
+	Owner           string
+	HmacOwner       []byte
+	FileStruct_uuid uuid.UUID
+	Hmac_UUID       []byte
+	EncFileKey      []byte //enc with rsa
+	Signature       []byte
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	// storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
-	// if err != nil {
-	// 	return err
-	// }
-	// contentBytes, err := json.Marshal(content)
-	// if err != nil {
-	// 	return err
-	// }
-	// userlib.DatastoreSet(storageKey, contentBytes)
-	// return
-	var file_struct FileStruct
+
+	file_uuid := usernameToUUID(userdata.Username, "/"+filename)
+
+	file_byte, ok := userlib.DatastoreGet(file_uuid)
 
 	// create file for the first time
-	file_uuid := usernameToUUID(userdata.Username, "/"+filename)
-	rand_file_key := userlib.RandomBytes(16)
-	// file_struct_marshal, ok := userlib.DatastoreGet(file_uuid)
-	_, ok := userlib.DatastoreGet(file_uuid)
 	if !ok {
-		// create SymEncKey
-		enc_rand_file_ley, err := encryptRSAFileKey(userdata, rand_file_key, userdata)
+		file_key := userlib.RandomBytes(16)
+
+		// create new file struct
+		file_struct, err := createNewFileStruct(userdata.Username, file_key)
 		if err != nil {
 			return err
 		}
 
-		// create uuid for rand_file_key
-		rand_file_key_uuid := usernameToUUID(userdata.Username, "/"+filename+"/key")
-		userlib.DatastoreSet(rand_file_key_uuid, enc_rand_file_ley)
-
-		// Initiate File Struct
-		createNewFileStruct(userdata, &file_struct, rand_file_key)
-		head_uuid := file_struct.FileHead
-		tail_uuid := file_struct.FileTail
-
-		// Initiate File head
-		head_content, err := encryptFileContent(content, tail_uuid, file_struct.SymEncKey)
+		// save the content
+		err = saveContent(file_struct, content)
 		if err != nil {
 			return err
 		}
-		userlib.DatastoreSet(head_uuid, head_content)
-
-		// Initiate File tail
-		tail_content, err := encryptFileContent([]byte(""), head_uuid, file_struct.SymEncKey)
-		if err != nil {
-			return err
-		}
-		userlib.DatastoreSet(tail_uuid, tail_content)
-	} else {
 
 	}
 
-	enc_file_struct, err := encryptFileStruct(&file_struct, rand_file_key)
-	if err != nil {
-		return err
-	}
-
-	userlib.DatastoreSet(file_uuid, enc_file_struct)
 	return nil
 }
 
@@ -383,39 +356,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 }
 
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	// storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// dataJSON, ok := userlib.DatastoreGet(storageKey)
-	// if !ok {
-	// 	return nil, errors.New(strings.ToTitle("file not found"))
-	// }
-	// err = json.Unmarshal(dataJSON, &content)
-	// return content, err
-
-	file_uuid := usernameToUUID(userdata.Username, "/"+filename)
-	marshal_file_struct_auth, ok := userlib.DatastoreGet(file_uuid)
-	if !ok {
-		return nil, errors.New("attempt to load non-exist file error")
-	}
-
-	// get the SymEncKey to decrypt the file_struct
-	file_key_uuid := usernameToUUID(userdata.Username, "/"+filename+"key")
-	marshal_file_key_auth, ok := userlib.DatastoreGet(file_key_uuid)
-	if !ok {
-		return nil, errors.New("attempt to get key of non-exist file key error")
-	}
-
-	file_key, err := decryptRSAFileKey(userdata, marshal_file_key_auth)
-	if err != nil {
-		return nil, err
-	}
-
-	file_struct, err := decryptFileStruct(marshal_file_struct_auth, file_key)
-	if err != nil {
-		return nil, err
-	}
+	return nil, nil
 
 }
 
@@ -499,244 +440,164 @@ func hmacPassword(password string, enc_argon2_password []byte) []byte {
 	return result
 }
 
-func deteleFile(file_struct FileStruct) {
-	next_uuid := file_struct.FileHead
+func createNewFileStruct(username string, file_key []byte) (file_struct_ptr *FileStruct, err error) {
+	var file_struct FileStruct
 
-	for next_uuid != file_struct.FileTail {
-		next_uuid = usernameToUUID(next_uuid.String(), "/next")
-
-	}
-}
-
-func createNewFileStruct(userdata *User, file_struct *FileStruct, SymEncKey []byte) {
-	file_struct.Owner = userdata.Username
+	file_struct.Owner = username
 	file_struct.FileHead = uuid.New()
-	file_struct.FileTail = uuid.New()
-	file_struct.SymEncKey = SymEncKey
+	file_struct.FileTail = file_struct.FileHead
+	file_struct.SymEncKey = file_key
+
+	return &file_struct, nil
 }
 
-func encryptFileContent(content []byte, next uuid.UUID, SymEncKey []byte) ([]byte, error) {
+func saveContent(file_struct *FileStruct, content []byte) (err error) {
+	// new tail
+	new_uuid := uuid.New()
 
-	// create FileContent struct
-	var file_content FileContent
-	file_content.Content = content
-	file_content.NextUUID = next
-
-	// marshal FileContent
-	marshal_file_content, err := json.Marshal(file_content)
+	// enc the content
+	content_byte, err := encryptContent(content, file_struct.SymEncKey, new_uuid)
 	if err != nil {
-		return nil, errors.New("marshaling file content error: " + err.Error())
+		return err
 	}
 
-	// create Authentication for FileContent
+	// save it to the old tail
+	userlib.DatastoreSet(file_struct.FileTail, content_byte)
+
+	// set new tail
+	file_struct.FileTail = new_uuid
+
+	return nil
+}
+
+func encryptContent(content []byte, file_key []byte, nextUUID uuid.UUID) ([]byte, error) {
+
+	var file_content FileContent
+
+	// enc the content with file_key
+	enc_content := userlib.SymEnc(file_key, userlib.RandomBytes(16), content)
+	hmac_content, err := userlib.HMACEval(file_key, enc_content)
+	if err != nil {
+		return nil, errors.New("attempt to hmac file content failed: " + err.Error())
+	}
+
+	// hmac next_uuid
+	hmac_next_uuid, err := userlib.HMACEval(file_key, nextUUID[:])
+	if err != nil {
+		return nil, errors.New("attemtp to hmac next uuid failed: " + err.Error())
+	}
+
+	file_content.EncContent = enc_content
+	file_content.HMACContent = hmac_content
+	file_content.NextUUID = nextUUID
+	file_content.HMACnext = hmac_next_uuid
+
+	// marshal file_content
+	file_content_byte, err := json.Marshal(file_content)
+	if err != nil {
+		return nil, errors.New("marshal file_content failed: " + err.Error())
+	}
+
+	return file_content_byte, nil
+}
+
+func decryptContent(content_byte []byte, file_key []byte) ([]byte, uuid.UUID, error) {
+
+	var file_content FileContent
+
+	// unmarshal the content_byte
+	err := json.Unmarshal(content_byte, &file_content)
+	if err != nil {
+		return nil, uuid.Nil, errors.New("unmarshal file_content failed" + err.Error())
+	}
+
+	// verify content hmac
+	check_content_hmac, err := userlib.HMACEval(file_key, file_content.EncContent)
+	if err != nil {
+		return nil, uuid.Nil, errors.New("generate check_content_hmac failed: " + err.Error())
+	}
+	valid := userlib.HMACEqual(check_content_hmac, file_content.HMACContent)
+	if !valid {
+		return nil, uuid.Nil, errors.New("hmac of the content does not match: " + err.Error())
+	}
+
+	// verify nextUUID
+	check_next_uuid_hmac, err := userlib.HMACEval(file_key, file_content.NextUUID[:])
+	if err != nil {
+		return nil, uuid.Nil, errors.New("generated check_next_uuid_hmac failed: " + err.Error())
+	}
+	valid = userlib.HMACEqual(check_next_uuid_hmac, file_content.HMACnext)
+	if !valid {
+		return nil, uuid.Nil, errors.New("hmac of the next_uuid does not match: " + err.Error())
+	}
+
+	// decrypt content
+	content := userlib.SymDec(file_key, file_content.EncContent)
+
+	return content, file_content.NextUUID, nil
+
+}
+
+func encryptFileStruct(file_struct *FileStruct, file_key []byte) (file_byte []byte, err error) {
+
 	var auth Authentication
 
-	enc_file_content := userlib.SymEnc(SymEncKey, userlib.RandomBytes(16), marshal_file_content)
-	hmac_file_content, err := userlib.HMACEval(SymEncKey, enc_file_content)
-
-	if err != nil {
-		return nil, errors.New("HMAC file content error: " + err.Error())
-	}
-
-	auth.EncData = enc_file_content
-	auth.HMACData = hmac_file_content
-
-	// marshal Authentication
-	marshal_auth, err := json.Marshal(auth)
-	if err != nil {
-		return nil, errors.New("Marshaling file content's auth error: " + err.Error())
-	}
-
-	return marshal_auth, nil
-
-}
-
-func encryptFileStruct(file_struct *FileStruct, sourceKey []byte) ([]byte, error) {
-
-	// marshal FileStruct
+	// marshal file_struct
 	marshal_file_struct, err := json.Marshal(file_struct)
 	if err != nil {
-		return nil, errors.New("marshalling file struct error: " + err.Error())
+		return nil, errors.New("marshal file_struct failed: " + err.Error())
 	}
 
-	// encrypt marshalled FileStruct with SymEnc
-	enc_file_struct := userlib.SymEnc(sourceKey, userlib.RandomBytes(16), marshal_file_struct)
+	// encrypt file_struct
+	enc_file_struct := userlib.SymEnc(file_key, userlib.RandomBytes(16), marshal_file_struct)
 
-	// create HMAC on encrypted_marshalled_FileStruct
-	hmac_file_struct, err := userlib.HMACEval(sourceKey, enc_file_struct)
+	// hmac for file_struct
+	hmac_file_struct, err := userlib.HMACEval(file_key, enc_file_struct)
 	if err != nil {
-		return nil, errors.New("hmac file struct error: " + err.Error())
+		return nil, errors.New("create hmac for file_struct failed: " + err.Error())
 	}
 
-	// create an Auth for file_struct
-	var auth Authentication
 	auth.EncData = enc_file_struct
 	auth.HMACData = hmac_file_struct
 
 	// marshal auth
-	marshal_auth, err := json.Marshal(auth)
+	auth_byte, err := json.Marshal(auth)
 	if err != nil {
-		return nil, errors.New("marshal file struct's auth error: " + err.Error())
+		return nil, errors.New("marshal for file_struct auth failed: " + err.Error())
 	}
-	return marshal_auth, nil
 
+	return auth_byte, nil
 }
 
-func encryptRSAFileKey(userdata *User, fileKey []byte, recipient *User) ([]byte, error) {
+func descryptFileStruct(auth_byte []byte, file_key []byte) (file_struct_ptr *FileStruct, err error) {
 
-	// get rsa encrypt key
-	rsa_pub_key, ok := userlib.KeystoreGet(recipient.Username + "/rsa-pub")
-	if !ok {
-		return nil, errors.New("attempt to get user's rsa pub key failed.")
-	}
-
-	// encrypt the file key with rsa
-	enc_fileKey, err := userlib.PKEEnc(rsa_pub_key, fileKey)
+	// unmarshal the auth
+	var auth Authentication
+	err = json.Unmarshal(auth_byte, &auth)
 	if err != nil {
-		return nil, errors.New("attampt to encrypt file key with rsa failed: " + err.Error())
+		return nil, errors.New("unmarshal file_stuct's auth failed: " + err.Error())
 	}
 
-	// create hmac for encrypted file key
-	sign_fileKey, err := userlib.DSSign(userdata.DSSignKey, enc_fileKey)
+	// verify hmac
+	check_hmac, err := userlib.HMACEval(file_key, auth.EncData)
 	if err != nil {
-		return nil, errors.New("attempt to sign file key failed: " + err.Error())
+		return nil, errors.New("generated check_hmac for file_struct failed: " + err.Error())
+	}
+	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
+	if !valid {
+		return nil, errors.New("file_struct hmac does not match" + err.Error())
 	}
 
-	// create RSA auth
-	var rsa_auth RSAAuthentication
-	rsa_auth.RSAEncData = enc_fileKey
-	rsa_auth.SignData = sign_fileKey
-	rsa_auth.SignPerson = userdata.Username
+	// decrypt for marshal of file_struct
+	file_struct_byte := userlib.SymDec(file_key, auth.EncData)
 
-	// marshal rsa auth
-	marshal_rsa_auth, err := json.Marshal(rsa_auth)
-	if err != nil {
-		return nil, errors.New("attempt to marshal rsa auth for file key failed: " + err.Error())
-	}
-
-	return marshal_rsa_auth, nil
-
-}
-
-func decryptRSAFileKey(userdata *User, marshal_rsa_auth []byte) ([]byte, error) {
-
-	// Unmarshal rsa auth
-	var rsa_auth RSAAuthentication
-	err := json.Unmarshal(marshal_rsa_auth, &rsa_auth)
-	if err != nil {
-		return nil, errors.New("attempt to unmarshal rsa auth for file key failed: " + err.Error())
-	}
-
-	// Get verify key
-	verify_key, ok := userlib.KeystoreGet(rsa_auth.SignPerson + "/verify-key")
-	if !ok {
-		return nil, errors.New(fmt.Sprintf("attempt to get verify key for %s failed", rsa_auth.SignPerson))
-	}
-
-	// Verify sign key
-	err = userlib.DSVerify(verify_key, rsa_auth.RSAEncData, rsa_auth.SignData)
-	if err != nil {
-		return nil, errors.New("signature does not match error: " + err.Error())
-	}
-
-	// Decrypt enc_file_key
-	file_key, err := userlib.PKEDec(userdata.PKEDecKey, rsa_auth.RSAEncData)
-	if err != nil {
-		return nil, errors.New("attempt to decrypt rsa_auth.RSAEncData failed: " + err.Error())
-	}
-
-	return file_key, nil
-}
-
-func decryptFileStruct(marshal_file_struct_auth []byte, fileKey []byte) (*FileStruct, error) {
-
-	// Unmarshal marshal_file_struct_auth
-	var file_struct_auth Authentication
-	err := json.Unmarshal(marshal_file_struct_auth, &file_struct_auth)
-	if err != nil {
-		return nil, errors.New("attempt to unmarshal file_struct_auth failed: " + err.Error())
-	}
-
-	// Check for hmac
-	check_hmac, err := userlib.HMACEval(fileKey, file_struct_auth.EncData)
-	if err != nil {
-		return nil, errors.New("attempt to create check_hmac for file_struct failed: " + err.Error())
-	}
-	is_valid := userlib.HMACEqual(check_hmac, file_struct_auth.HMACData)
-	if !is_valid {
-		return nil, errors.New("HMAC for file_struct does not match")
-	}
-
-	// Decrypt for marshal_file_struct
+	// unmarshal for file_struct
 	var file_struct FileStruct
-	marshal_file_struct := userlib.SymDec(fileKey, file_struct_auth.EncData)
-
-	// Unmarshal file struct
-	err = json.Unmarshal(marshal_file_struct, &file_struct)
+	err = json.Unmarshal(file_struct_byte, &file_struct)
 	if err != nil {
-		return nil, errors.New("attempt to unmarshal file struct failed: " + err.Error())
+		return nil, errors.New("unmarshal file_struct failed: " + err.Error())
 	}
 
 	return &file_struct, nil
 
-}
-
-func decryptFileContent(marshal_file_content_auth []byte, fileKey []byte) (*FileContent, error) {
-
-	// Unmarshal the auth
-	var file_content_auth Authentication
-	err := json.Unmarshal(marshal_file_content_auth, &file_content_auth)
-	if err != nil {
-		return nil, errors.New("attempt to unmarshal file_content_auth failed: " + err.Error())
-	}
-
-	// check for hmac
-	check_hmac, err := userlib.HMACEval(file_content_auth.EncData, fileKey)
-	if err != nil {
-		return nil, errors.New("attempt to create check_hamc for file_content failed: " + err.Error())
-	}
-	is_valid := userlib.HMACEqual(check_hmac, file_content_auth.HMACData)
-	if !is_valid {
-		return nil, errors.New("HMAC for file_content does not match")
-	}
-
-	// decrypt for marshal file_content
-	marshal_file_content := userlib.SymDec(fileKey, file_content_auth.EncData)
-
-	// unmarshal file_content
-	var file_content FileContent
-	err = json.Unmarshal(marshal_file_content, &file_content)
-	if err != nil {
-		return nil, errors.New("attempt to unmarshal file_content failed: " + err.Error())
-	}
-
-	return &file_content, nil
-}
-
-func getFileContent(file_struct FileStruct, fileKey []byte) ([]byte, error) {
-	next_uuid := file_struct.FileHead
-	tail_uuid := file_struct.FileTail
-	var content []byte
-
-	for next_uuid != tail_uuid {
-		// get the marshal_file_content_auth from data store
-		marshal_file_content_auth, ok := userlib.DatastoreGet(next_uuid)
-		if !ok {
-			return nil, errors.New("attempt to get marshal_file_content_auth failed")
-		}
-
-		// decrypt for file_content
-		file_content, err := decryptFileContent(marshal_file_content_auth, fileKey)
-		if err != nil {
-			return nil, err
-		}
-
-		// append the content in each FileContent
-		content = append(content, file_content.Content...)
-
-		//update next_uuid
-		next_uuid = file_content.NextUUID
-	}
-
-	return content, nil
 }
