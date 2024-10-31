@@ -300,12 +300,13 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 }
 
 type FileStruct struct {
-	Owner     string
-	HmacOwner []byte
-	FileHead  uuid.UUID
-	FileTail  uuid.UUID
-	SymEncKey []byte
-	Invites   map[string]uuid.UUID
+	Owner         string
+	OwnerSig      []byte
+	FileHead      uuid.UUID
+	FileTail      uuid.UUID
+	ShareWith     []byte //decrypt this with owner's sourceKey + filename
+	HmacShareWith []byte //hmac of listA
+	ListB         map[string]uuid.UUID
 }
 
 type FileContent struct {
@@ -324,39 +325,103 @@ type Invite struct {
 	Signature       []byte
 }
 
+type MetaData struct {
+	FileStructUUID uuid.UUID
+	KeyA           []byte //use this to decrypt file_key
+}
+
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
-	file_uuid := usernameToUUID(userdata.Username, "/"+filename)
+	// // store the file
+	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
+	// meta_key := createKeys(userdata.SourceKey, filename)
 
-	file_byte, ok := userlib.DatastoreGet(file_uuid)
+	// // check if the file existed
+	// _, ok := userlib.DatastoreGet(file_uuid)
+	// if !ok {
+	// 	// create new file struct
+	// 	file_key := userlib.RandomBytes(16)
+	// 	file_struct_uuid := userlib.RandomBytes(16)
 
-	// create file for the first time
-	if !ok {
-		file_key := userlib.RandomBytes(16)
+	// 	file_struct, err := createNewFileStruct(userdata, filename)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		// create new file struct
-		file_struct, err := createNewFileStruct(userdata.Username, file_key)
-		if err != nil {
-			return err
-		}
+	// 	// save the content
+	// 	err = saveContent(file_struct, content, _)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		// save the content
-		err = saveContent(file_struct, content)
-		if err != nil {
-			return err
-		}
-
-	}
+	// 	// save the file struct
+	// 	file_struct_byte, err := json.Marshal(file_struct)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	userlib.DatastoreSet(file_uuid, file_struct_byte)
+	// }
 
 	return nil
 }
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
+	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
+	// // meta_key := createKeys(userdata.SourceKey, filename)
+	// _ = []byte("")
+
+	// // get the file struct
+	// file_struct_byte, ok := userlib.DatastoreGet(file_uuid)
+	// if !ok {
+	// 	return errors.New("File does not exist error")
+	// }
+	// var file_struct FileStruct
+	// err := json.Unmarshal(file_struct_byte, &file_struct)
+	// if err != nil {
+	// 	return errors.New("Unmarshal file struct error: " + err.Error())
+	// }
+
+	// // append the content
+	// err = saveContent(&file_struct, content, _)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // save the file struct
+	// file_struct_byte, err = json.Marshal(file_struct)
+	// if err != nil {
+	// 	return err
+	// }
+	// userlib.DatastoreSet(file_uuid, file_struct_byte)
+
 	return nil
 }
 
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	return nil, nil
+
+	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
+	// // meta_key := createKeys(userdata.SourceKey, filename)
+
+	// // get the file struct
+	// file_struct_byte, ok := userlib.DatastoreGet(file_uuid)
+	// if !ok {
+	// 	return nil, errors.New("File does not exist error")
+	// }
+	// var file_struct FileStruct
+	// err = json.Unmarshal(file_struct_byte, &file_struct)
+	// if err != nil {
+	// 	return nil, errors.New("Unmarshal file struct error: " + err.Error())
+	// }
+
+	// //load the content
+	// content, err = loadContent(&file_struct, _)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	//
+
+	return content, nil
 
 }
 
@@ -440,23 +505,25 @@ func hmacPassword(password string, enc_argon2_password []byte) []byte {
 	return result
 }
 
-func createNewFileStruct(username string, file_key []byte) (file_struct_ptr *FileStruct, err error) {
-	var file_struct FileStruct
+// func createNewFileStruct(userdata *User, file_name string) (file_struct_ptr *FileStruct, err error) {
+// 	var file_struct FileStruct
 
-	file_struct.Owner = username
-	file_struct.FileHead = uuid.New()
-	file_struct.FileTail = file_struct.FileHead
-	file_struct.SymEncKey = file_key
+// 	file_struct.Owner = username
+// 	file_struct.FileHead = uuid.New()
+// 	file_struct.FileTail = file_struct.FileHead
 
-	return &file_struct, nil
-}
+// 	// make private listA
+// 	// listA := make(map[string][]byte)
 
-func saveContent(file_struct *FileStruct, content []byte) (err error) {
+// 	return &file_struct, nil
+// }
+
+func saveContent(file_struct *FileStruct, content []byte, file_key []byte) (err error) {
 	// new tail
 	new_uuid := uuid.New()
 
 	// enc the content
-	content_byte, err := encryptContent(content, file_struct.SymEncKey, new_uuid)
+	content_byte, err := encryptContent(content, file_key, new_uuid)
 	if err != nil {
 		return err
 	}
@@ -468,6 +535,25 @@ func saveContent(file_struct *FileStruct, content []byte) (err error) {
 	file_struct.FileTail = new_uuid
 
 	return nil
+}
+
+func loadContent(file_struct *FileStruct, file_key []byte) (total_content []byte, err error) {
+
+	curr_uuid := file_struct.FileHead
+	for curr_uuid != file_struct.FileTail {
+		content_byte, ok := userlib.DatastoreGet(curr_uuid)
+		if !ok {
+			return nil, errors.New("File does not exist error")
+		}
+		content, next_uuid, err := decryptContent(content_byte, file_key)
+		if err != nil {
+			return nil, errors.New("Unmarshal file content error: " + err.Error())
+		}
+		total_content = append(total_content, content...)
+		curr_uuid = next_uuid
+	}
+	return total_content, nil
+
 }
 
 func encryptContent(content []byte, file_key []byte, nextUUID uuid.UUID) ([]byte, error) {
@@ -600,4 +686,188 @@ func descryptFileStruct(auth_byte []byte, file_key []byte) (file_struct_ptr *Fil
 
 	return &file_struct, nil
 
+}
+
+/**
+ * ShareWith functions
+ */
+
+func createShareWith() (share_with_ptr *map[string][]byte, err error) {
+	share_with := make(map[string][]byte)
+	return &share_with, nil
+}
+
+// func GetShareWith(file_struct *FileStruct, username string, file_key []byte, owner_key []byte) error {
+
+// 	// decrypt share_with
+// 	auth_byte := file_struct.ShareWith
+// 	share_with, err := decryptShareWith(auth_byte, owner_key)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// }
+
+// func update_share_with(share_with *map[string][]byte, owner_key []byte) error {
+// }
+
+func encryptShareWith(share_with *map[string][]byte, owner_key []byte) (auth_byte []byte, err error) {
+
+	// marshal share_with
+	share_with_byte, err := json.Marshal(*share_with)
+	if err != nil {
+		return nil, errors.New("marshal share_with failed: " + err.Error())
+	}
+
+	// encrypt share_with with own_key
+	share_with_enc := userlib.SymEnc(owner_key, userlib.RandomBytes(16), share_with_byte)
+	hmac, err := userlib.HMACEval(owner_key, share_with_enc)
+	if err != nil {
+		return nil, errors.New("create hmac for share_with failed: " + err.Error())
+	}
+
+	// create auth for share_with
+	var auth Authentication
+	auth.EncData = share_with_enc
+	auth.HMACData = hmac
+
+	// marshal auth
+	auth_byte, err = json.Marshal(auth)
+	if err != nil {
+		return nil, errors.New("marshal for share_with auth failed: " + err.Error())
+	}
+
+	return auth_byte, nil
+
+}
+
+func decryptShareWith(auth_byte []byte, owner_key []byte) (share_with_ptr *map[string][]byte, err error) {
+	// unmarshal the auth
+	var auth Authentication
+	err = json.Unmarshal(auth_byte, &auth)
+	if err != nil {
+		return nil, errors.New("unmarshal share_with's auth failed: " + err.Error())
+	}
+
+	// verify hmac
+	check_hmac, err := userlib.HMACEval(owner_key, auth.EncData)
+	if err != nil {
+		return nil, errors.New("generated check_hmac for share_with failed: " + err.Error())
+	}
+	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
+	if !valid {
+		return nil, errors.New("share_with hmac does not match" + err.Error())
+	}
+
+	// decrypt for share_with
+	share_with_byte := userlib.SymDec(owner_key, auth.EncData)
+
+	// unmarshal for share_with
+	var share_with map[string][]byte
+	err = json.Unmarshal(share_with_byte, &share_with)
+	if err != nil {
+		return nil, errors.New("unmarshal share_with failed: " + err.Error())
+	}
+
+	return &share_with, nil
+
+}
+
+/**
+ * MetaData functions
+ */
+func createMetaData(file_struct *FileStruct, keyA []byte, file_key []byte, file_struct_uuid uuid.UUID, username string) (meta_data_ptr *MetaData, err error) {
+	var meta_data MetaData
+	meta_data.FileStructUUID = file_struct_uuid
+	meta_data.KeyA = keyA
+
+	// enc file_key with keyA
+	file_key_uuid := uuid.New()
+	err = save_file_key(file_key, file_key_uuid, keyA)
+	if err != nil {
+		return nil, err
+	}
+
+	// update where the file_key is stored
+	return nil, nil
+
+}
+
+// func shareMetaData() {    ... }    // ... more code here
+
+/** file_key functions
+ */
+func save_file_key(file_key []byte, file_key_uuid uuid.UUID, keyA []byte) error {
+	// enc file_key with keyA
+	auth_byte, err := encryptFileKey(file_key, keyA)
+	if err != nil {
+		return err
+	}
+
+	// save the file key
+	userlib.DatastoreSet(file_key_uuid, auth_byte)
+	return nil
+}
+
+func get_file_key(fileKey_uuid uuid.UUID, keyA []byte) (file_key []byte, err error) {
+
+	// get the auth_byte of file key
+	auth_byte, ok := userlib.DatastoreGet(fileKey_uuid)
+	if !ok {
+		return nil, errors.New("File_key does not exist error")
+	}
+
+	// decrypt the auth_byte for file_key
+	file_key, err = decryptFileKey(auth_byte, keyA)
+	if err != nil {
+		return nil, err
+	}
+
+	return file_key, nil
+}
+
+func encryptFileKey(file_key []byte, keyA []byte) (file_key_enc []byte, err error) {
+
+	// enc file_key with keyA
+	enc_file_key := userlib.SymEnc(keyA, userlib.RandomBytes(16), file_key)
+	hmac_file_key, err := userlib.HMACEval(keyA, enc_file_key)
+	if err != nil {
+		return nil, errors.New("create hmac for file_key failed: " + err.Error())
+	}
+
+	// create an auth for file key
+	var auth Authentication
+	auth.EncData = enc_file_key
+	auth.HMACData = hmac_file_key
+
+	// marshal auth
+	auth_byte, err := json.Marshal(auth)
+
+	return auth_byte, nil
+
+}
+
+func decryptFileKey(auth_byte []byte, keyA []byte) (file_key []byte, err error) {
+
+	// unmarshal the auth
+	var auth Authentication
+	err = json.Unmarshal(auth_byte, &auth)
+	if err != nil {
+		return nil, errors.New("unmarshal file_stuct's auth failed: " + err.Error())
+	}
+
+	// check hmac
+	check_hmac, err := userlib.HMACEval(keyA, auth.EncData)
+	if err != nil {
+		return nil, errors.New("generated check_hmac for file_key failed: " + err.Error())
+	}
+	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
+	if !valid {
+		return nil, errors.New("file_key hmac does not match" + err.Error())
+	}
+
+	// decrypt for file_key
+	file_key = userlib.SymDec(keyA, auth.EncData) // enc file_key with keyA
+
+	return file_key, nil
 }

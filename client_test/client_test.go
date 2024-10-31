@@ -22,6 +22,8 @@ import (
 
 	userlib "github.com/cs161-staff/project2-userlib"
 
+	// "encoding/json" // delete this later
+
 	"github.com/cs161-staff/project2-starter-code/client"
 )
 
@@ -85,6 +87,13 @@ var _ = Describe("Client Tests", func() {
 		userlib.KeystoreClear()
 	})
 
+	Describe("Test share_with function", func() {
+		Specify("Test intialize share_with", func() {
+		userlib.DebugMsg("Initializing users Alice and Bob.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+	})
+
 	Describe("InitUser Test", func() {
 		Specify("Testing username is empty", func() {
 			userlib.DebugMsg("Inializing empty username.")
@@ -102,6 +111,22 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 		})
 	})
+
+	// Describe("Test marshal", func() {
+	// 	FSpecify("Test marshal source key", func() {
+	// 		var myMap map[string][]byte
+	// 		myMap = make(map[string][]byte)
+	// 		myMap["key"] = []byte("value")
+
+	// 		myMap_byte, err := json.Marshal(myMap)
+	// 		Expect(err).To(BeNil())
+
+	// 		var myMap2 map[string][]byte
+	// 		err = json.Unmarshal(myMap_byte, &myMap2)
+	// 		Expect(err).To(BeNil())
+	// 		Expect(myMap2["key"]).To(Equal([]byte("value")))
+	// 	})
+	// })
 
 	Describe("GetUser Test", func() {
 		Specify("Test getting unintialized user", func() {
@@ -188,8 +213,28 @@ var _ = Describe("Client Tests", func() {
 
 			userlib.DebugMsg("Loading file...")
 			data, err := alice.LoadFile(aliceFile)
-			Expect(err).ToNot(BeNil())
+			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentTwo)))
+		})
+
+		Specify("Test append files", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Appending file data: %s", contentTwo)
+			err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Loading file... ")
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			userlib.DebugMsg("should be %s", contentOne+contentTwo)
+			Expect(data).To(Equal([]byte(contentOne + contentTwo)))
 		})
 	})
 
