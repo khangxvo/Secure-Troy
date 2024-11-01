@@ -87,13 +87,6 @@ var _ = Describe("Client Tests", func() {
 		userlib.KeystoreClear()
 	})
 
-	Describe("Test share_with function", func() {
-		Specify("Test intialize share_with", func() {
-		userlib.DebugMsg("Initializing users Alice and Bob.")
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-	})
-
 	Describe("InitUser Test", func() {
 		Specify("Testing username is empty", func() {
 			userlib.DebugMsg("Inializing empty username.")
