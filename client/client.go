@@ -143,14 +143,14 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// check for username existed error
-	user_struct_uuid := usernameToUUID(username, "/user-struct")
+	user_struct_uuid := usernameToUUID(username, "user-struct")
 	_, ok := userlib.DatastoreGet(user_struct_uuid)
 	if ok {
 		err = errors.New("user existed error")
 		return nil, err
 	}
 
-	username_password_uuid := usernameToUUID(username, "/password")
+	username_password_uuid := usernameToUUID(username, "password")
 	_, ok = userlib.DatastoreGet(username_password_uuid)
 	if ok {
 		err = errors.New("user existed error")
@@ -230,14 +230,14 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 
 func GetUser(username string, password string) (userdataptr *User, err error) {
 	// check if username exist
-	user_struct_uuid := usernameToUUID(username, "/user-struct")
+	user_struct_uuid := usernameToUUID(username, "user-struct")
 	marshal_user_struct_auth, ok := userlib.DatastoreGet(user_struct_uuid)
 	if !ok {
 		return nil, errors.New("User does not exist error")
 	}
 
 	// check if the authetnication is correct
-	username_password_uuid := usernameToUUID(username, "/password")
+	username_password_uuid := usernameToUUID(username, "password")
 	marshal_auth, ok := userlib.DatastoreGet(username_password_uuid)
 	if !ok {
 		return nil, errors.New("User does not exist error ")
@@ -332,94 +332,175 @@ type MetaData struct {
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
-	// // store the file
-	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
-	// meta_key := createKeys(userdata.SourceKey, filename)
+	// store the file
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
 
-	// // check if the file existed
-	// _, ok := userlib.DatastoreGet(file_uuid)
-	// if !ok {
-	// 	// create new file struct
-	// 	file_key := userlib.RandomBytes(16)
-	// 	file_struct_uuid := userlib.RandomBytes(16)
+	// check if the file existed
+	_, ok := userlib.DatastoreGet(file_uuid)
+	// create file for the first time
+	if !ok {
+		file_key := createFileKey()
+		file_struct_uuid := uuid.New()
+		keyA := createKeyA()
 
-	// 	file_struct, err := createNewFileStruct(userdata, filename)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+		// create meta_data
+		meta_data, err := createMetaData(keyA, file_struct_uuid, userdata.Username)
+		if err != nil {
+			return err
+		}
+		// save the meta_data
+		err = saveMetaData(file_uuid, meta_data, meta_key)
+		if err != nil {
+			return err
+		}
 
-	// 	// save the content
-	// 	err = saveContent(file_struct, content, _)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+		file_struct, err := createFileStruct(userdata, meta_key)
+		if err != nil {
+			return err
+		}
 
-	// 	// save the file struct
-	// 	file_struct_byte, err := json.Marshal(file_struct)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	userlib.DatastoreSet(file_uuid, file_struct_byte)
-	// }
+		// save the content
+		err = saveContent(file_struct, content, file_key)
+		if err != nil {
+			return err
+		}
+
+		// save file_key
+		err = save_file_key(file_key, keyA, userdata.Username, file_struct, meta_key)
+		if err != nil {
+			return err
+		}
+
+		// saveFileStruct last when operation is complete
+		err = saveFileStruct(file_struct, file_struct_uuid)
+		if err != nil {
+			return err
+		}
+
+	} else { // overwrite the old content
+
+		// get the meta_data
+		meta_data, err := getMetaData(file_uuid, meta_key)
+		if err != nil {
+			return err
+		}
+
+		// get the file_struct
+		file_struct, err := getFileStruct(meta_data.FileStructUUID)
+		if err != nil {
+			return err
+		}
+
+		// get file_key
+		file_key, err := get_file_key(meta_data)
+		if err != nil {
+			return err
+		}
+
+		// detelete the old content
+		err = deleteContent(file_struct, file_key)
+		if err != nil {
+			return err
+		}
+
+		// save new content
+		err = saveContent(file_struct, content, file_key)
+		if err != nil {
+			return err
+		}
+
+		// save file_struct when the last operations is done
+		err = saveFileStruct(file_struct, meta_data.FileStructUUID)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
-	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
-	// // meta_key := createKeys(userdata.SourceKey, filename)
-	// _ = []byte("")
 
-	// // get the file struct
-	// file_struct_byte, ok := userlib.DatastoreGet(file_uuid)
-	// if !ok {
-	// 	return errors.New("File does not exist error")
-	// }
-	// var file_struct FileStruct
-	// err := json.Unmarshal(file_struct_byte, &file_struct)
-	// if err != nil {
-	// 	return errors.New("Unmarshal file struct error: " + err.Error())
-	// }
+	// important variables
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
 
-	// // append the content
-	// err = saveContent(&file_struct, content, _)
-	// if err != nil {
-	// 	return err
-	// }
+	// check file's existence
+	_, ok := userlib.DatastoreGet(file_uuid)
+	if !ok {
+		return errors.New("File does not exist error")
+	}
 
-	// // save the file struct
-	// file_struct_byte, err = json.Marshal(file_struct)
-	// if err != nil {
-	// 	return err
-	// }
-	// userlib.DatastoreSet(file_uuid, file_struct_byte)
+	// get meta_data
+	meta_data, err := getMetaData(file_uuid, meta_key)
+	if err != nil {
+		return err
+	}
+
+	// get file_struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return err
+	}
+
+	// get file_key
+	file_key, err := get_file_key(meta_data)
+	if err != nil {
+		return err
+	}
+
+	// save new content
+	err = saveContent(file_struct, content, file_key)
+	if err != nil {
+		return err
+	}
+
+	// save file_struct when the last operations is done
+	err = saveFileStruct(file_struct, meta_data.FileStructUUID)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
-	// file_uuid := usernameToUUID(userdata.Username, "/"+filename)
-	// // meta_key := createKeys(userdata.SourceKey, filename)
+	// important variables
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
 
-	// // get the file struct
-	// file_struct_byte, ok := userlib.DatastoreGet(file_uuid)
-	// if !ok {
-	// 	return nil, errors.New("File does not exist error")
-	// }
-	// var file_struct FileStruct
-	// err = json.Unmarshal(file_struct_byte, &file_struct)
-	// if err != nil {
-	// 	return nil, errors.New("Unmarshal file struct error: " + err.Error())
-	// }
+	_, ok := userlib.DatastoreGet(file_uuid)
+	if !ok {
+		return nil, errors.New("File does not exist error")
+	}
 
-	// //load the content
-	// content, err = loadContent(&file_struct, _)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	// get the meta_data
+	// this get the same result as call DataStoreGet but I will check for tampered meta_data
+	// and return a meta data
+	meta_data, err := getMetaData(file_uuid, meta_key)
+	if err != nil {
+		return nil, err
+	}
 
-	//
+	// get file_struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	// get file_key
+	file_key, err := get_file_key(meta_data)
+	if err != nil {
+		return nil, err
+	}
+
+	// load the file_content
+	content, err = loadContent(file_struct, file_key)
+	if err != nil {
+		return nil, err
+	}
 
 	return content, nil
 
@@ -455,7 +536,7 @@ func usernameToUUID(username string, purpose string) uuid.UUID {
 		- A UUID generated based on the `username` and `purpose`.
 	*/
 
-	hash := userlib.Hash([]byte(username + purpose))
+	hash := userlib.Hash([]byte(username + "/" + purpose))
 	result, err := uuid.FromBytes(hash[:16])
 	if err != nil {
 		panic(errors.New("Error occurs when converting username to UUID: " + err.Error()))
@@ -611,6 +692,38 @@ func decryptContent(content_byte []byte, file_key []byte) ([]byte, uuid.UUID, er
 
 }
 
+func deleteContent(file_struct *FileStruct, file_key []byte) (err error) {
+
+	cur_uuid := file_struct.FileHead
+	for cur_uuid != file_struct.FileTail {
+
+		// get the content byte from datastore
+		content_byte, ok := userlib.DatastoreGet(cur_uuid)
+		if !ok {
+			return errors.New("load content_byte failed")
+		}
+
+		// decrypt content
+		_, next_uuid, err := decryptContent(content_byte, file_key)
+		if err != nil {
+			return err
+		}
+
+		// delete the content from datastore
+		userlib.DatastoreDelete(cur_uuid)
+
+		// update cur_uuid
+		cur_uuid = next_uuid
+
+	}
+
+	// move the tail up to head
+	file_struct.FileTail = file_struct.FileHead
+
+	return nil
+
+}
+
 /**** FileStruct Functions ****/
 
 func createFileStruct(userdata *User, owner_key []byte) (file_struct_ptr *FileStruct, err error) {
@@ -677,7 +790,7 @@ func saveFileStruct(file_struct *FileStruct, file_struct_uuid uuid.UUID) (err er
 
 }
 
-func loadFileStruct(file_struct_uuid uuid.UUID) (file_struct_ptr *FileStruct, err error) {
+func getFileStruct(file_struct_uuid uuid.UUID) (file_struct_ptr *FileStruct, err error) {
 
 	file_struct_byte, ok := userlib.DatastoreGet(file_struct_uuid)
 	if !ok {
@@ -717,6 +830,19 @@ func getShareWith(file_struct *FileStruct, owner_key []byte) (share_with_ptr *ma
 
 	return share_with, nil
 
+}
+
+func getKeyA(file_struct *FileStruct, owner_key []byte, username string) (keyA []byte, err error) {
+	share_with, err := getShareWith(file_struct, owner_key)
+	if err != nil {
+		return nil, err
+	}
+
+	keyA, ok := (*share_with)[username]
+	if !ok {
+		return nil, errors.New("get keyA for user failed")
+	}
+	return keyA, nil
 }
 
 func updateShareWith(file_struct *FileStruct, username string, keyA []byte, owner_key []byte) (err error) {
@@ -921,36 +1047,58 @@ func createFileKey() []byte {
 	return file_key
 }
 
-func save_file_key(file_key []byte, file_key_uuid uuid.UUID, keyA []byte, username string, file_struct *FileStruct) (err error) {
-	// enc file_key with keyA
-	// auth_byte, err := encryptFileKey(file_key, keyA)
-	// if err != nil {
-	// 	return err
-	// }
+func save_file_key(file_key []byte, keyA []byte, username string, file_struct *FileStruct, onwer_key []byte) (err error) {
 
-	// // save the file key
-	// userlib.DatastoreSet(file_key_uuid, auth_byte)
+	file_key_uuid := uuid.New()
 
-	// // update share_with
-	// err = updateShareWith(file_struct, username, keyA)
+	// save file_key to the datastore
+	auth_byte, err := encryptFileKey(file_key, keyA)
+	if err != nil {
+		return err
+	}
+	userlib.DatastoreSet(file_key_uuid, auth_byte)
+
+	// update listB
+	err = addListB(file_struct, username, file_key_uuid)
+	if err != nil {
+		return err
+	}
+
+	// update share_with
+	err = updateShareWith(file_struct, username, keyA, onwer_key)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func get_file_key(fileKey_uuid uuid.UUID, keyA []byte) (file_key []byte, err error) {
+func get_file_key(meta_data *MetaData) (file_key []byte, err error) {
 
-	// get the auth_byte of file key
-	auth_byte, ok := userlib.DatastoreGet(fileKey_uuid)
-	if !ok {
-		return nil, errors.New("File_key does not exist error")
+	// get the file struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return nil, err
 	}
 
-	// decrypt the auth_byte for file_key
-	file_key, err = decryptFileKey(auth_byte, keyA)
+	// get file_key_uuid
+	file_key_uuid, err := getListB(file_struct, meta_data.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	// get the file_key
+	auth_byte, ok := userlib.DatastoreGet(file_key_uuid)
+	if !ok {
+		return nil, errors.New("load file_key auth failed")
+	}
+	file_key, err = decryptFileKey(auth_byte, meta_data.KeyA)
 	if err != nil {
 		return nil, err
 	}
 
 	return file_key, nil
+
 }
 
 func encryptFileKey(file_key []byte, keyA []byte) (file_key_enc []byte, err error) {
@@ -1039,6 +1187,32 @@ func getListB(file_struct *FileStruct, username string) (file_key_uuid uuid.UUID
 func createKeyA() []byte {
 	keyA := userlib.RandomBytes(16)
 	return keyA
+}
+
+/**** Ownership functions ****/
+func checkOwnerShip(userdata *User, meta_data *MetaData, file_truct *FileStruct, file_name string) (owner_key []byte, err error) {
+	valid := (userdata.Username == meta_data.Username)
+	if !valid {
+		return nil, errors.New("not the file owner")
+	}
+
+	err = checkFileStruct(file_truct)
+	if err != nil {
+		return nil, err
+	}
+
+	valid = (meta_data.Username == file_truct.Owner)
+	if !valid {
+		return nil, errors.New("not the file owner")
+	}
+
+	owner_key = createKeys(userdata.SourceKey, file_name)
+	if err != nil {
+		return nil, err
+	}
+
+	return owner_key, nil
+
 }
 
 func createRandomUUID() uuid.UUID {

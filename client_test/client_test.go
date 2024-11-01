@@ -105,22 +105,6 @@ var _ = Describe("Client Tests", func() {
 		})
 	})
 
-	// Describe("Test marshal", func() {
-	// 	FSpecify("Test marshal source key", func() {
-	// 		var myMap map[string][]byte
-	// 		myMap = make(map[string][]byte)
-	// 		myMap["key"] = []byte("value")
-
-	// 		myMap_byte, err := json.Marshal(myMap)
-	// 		Expect(err).To(BeNil())
-
-	// 		var myMap2 map[string][]byte
-	// 		err = json.Unmarshal(myMap_byte, &myMap2)
-	// 		Expect(err).To(BeNil())
-	// 		Expect(myMap2["key"]).To(Equal([]byte("value")))
-	// 	})
-	// })
-
 	Describe("GetUser Test", func() {
 		Specify("Test getting unintialized user", func() {
 			userlib.DebugMsg("Getting none existed Alice")
@@ -208,6 +192,54 @@ var _ = Describe("Client Tests", func() {
 			data, err := alice.LoadFile(aliceFile)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentTwo)))
+		})
+
+		Specify("Test write to file", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Load file data: %s", contentOne)
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
+		})
+
+		Specify("Test non-violating namespaces", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Bob.")
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing %s to aliceFile", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing %s to bobFile", contentTwo)
+			err = bob.StoreFile(bobFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Loading file... ")
+			userlib.DebugMsg("aliceFile should be %s", contentOne)
+			a_data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(a_data).To(Equal([]byte(contentOne)))
+
+			userlib.DebugMsg("bobFile should be %s", contentTwo)
+			b_data, err := bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(b_data).To(Equal([]byte(contentTwo)))
+
+			Expect(b_data).ToNot(Equal(a_data))
+
 		})
 
 		Specify("Test append files", func() {

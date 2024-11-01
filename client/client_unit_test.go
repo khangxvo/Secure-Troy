@@ -46,6 +46,7 @@ var _ = Describe("Client Unit Tests", func() {
 	bob_username := "bob"
 	file_key_A := []byte("keyA")
 	file_key_B := []byte("keyB")
+	alice_file := "fileA"
 	file_KeyA_uuid := createRandomUUID()
 	// source_key_A := createSourceKey(alice_username, default_password)
 	// source_key_B := createSourceKey(bob_username, default_password)
@@ -209,15 +210,82 @@ var _ = Describe("Client Unit Tests", func() {
 			err = saveFileStruct(file_struct, file_struct_uuid)
 			Expect(err).To(BeNil())
 
-			copy, err := loadFileStruct(file_struct_uuid)
+			copy, err := getFileStruct(file_struct_uuid)
 			Expect(err).To(BeNil())
 
 			userlib.DebugMsg("expect owner is %s", file_struct.Owner)
 			Expect(copy.Owner).To(Equal(file_struct.Owner))
-			userlib.DebugMsg("expect FileHead uuid is %s", file_struct.FileHead)
+			userlib.DebugMsg("expect file_struct.FileHead uuid is %s", file_struct.FileHead)
+			userlib.DebugMsg("expect copy.FileHead uuid is %s", copy.FileHead)
 			Expect(copy.FileHead).To(Equal(file_struct.FileHead))
 			Expect(copy.ShareWith).To(Equal(file_struct.ShareWith))
 		})
+	})
+
+	Describe("Test FileKey functions", func() {
+		Specify("test all FileKey functions", func() {
+
+			userlib.DebugMsg("Iniializing alice")
+			alice_user, err := InitUser(alice_username, default_password)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create file relate keys")
+			file_key := createFileKey()
+			keyA := createKeyA()
+			file_struct_uuid := createRandomUUID()
+			file_uuid := usernameToUUID(alice_user.Username, alice_file)
+
+			userlib.DebugMsg("Create file_struct")
+			owner_key := createKeys(alice_user.SourceKey, alice_file)
+			file_struct, err := createFileStruct(alice_user, owner_key)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create meta_data")
+			meta_data, err := createMetaData(keyA, file_struct_uuid, alice_user.Username)
+			Expect(err).To(BeNil())
+			err = saveMetaData(file_uuid, meta_data, owner_key)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("save file_key")
+			err = save_file_key(file_key, keyA, alice_user.Username, file_struct, owner_key)
+			Expect(err).To(BeNil())
+
+			// saveFileStruct last when operation is complete
+			err = saveFileStruct(file_struct, file_struct_uuid)
+			Expect(err).To(BeNil())
+
+			// userlib.DebugMsg("Print ListB")
+			// list_b := file_struct.ListB
+			// for key, val := range list_b {
+			// 	userlib.DebugMsg("username: %s, file_key_uuid: %s", key, val)
+			// }
+
+			// userlib.DebugMsg("Load copy of file_struct")
+			// file_struct_copy, err := getFileStruct(file_struct_uuid)
+			// Expect(err).To(BeNil())
+
+			// userlib.DebugMsg("Load listB of file_struct_copy")
+			// list_b_copy := file_struct_copy.ListB
+			// for key, val := range list_b_copy {
+			// 	userlib.DebugMsg("username: %s, file_key_uuid: %s", key, val)
+			// }
+
+			userlib.DebugMsg("load file_key")
+			file_key_copy, err := get_file_key(meta_data)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("compare file key")
+			Expect(file_key).To(Equal(file_key_copy))
+
+			userlib.DebugMsg("compare keyA")
+			file_struct_copy, err := getFileStruct(file_struct_uuid)
+			Expect(err).To(BeNil())
+			key_A_copy, err := getKeyA(file_struct_copy, owner_key, alice_user.Username)
+			Expect(err).To(BeNil())
+			Expect(key_A_copy).To(Equal(keyA))
+
+		})
+
 	})
 
 })
