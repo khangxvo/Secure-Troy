@@ -379,7 +379,7 @@ var _ = Describe("Client Unit Tests", func() {
 	})
 
 	Describe("Test AcceptInviataion", func() {
-		FSpecify("Test meta_data username after accept inviations", func() {
+		Specify("Test meta_data username after accept inviations", func() {
 			userlib.DebugMsg("Iniializing alice, bob, and charlie")
 			alice_user, err := InitUser(alice_username, default_password)
 			Expect(err).To(BeNil())

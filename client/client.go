@@ -265,7 +265,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	password_copy := userlib.SymDec(enc_argon2_key, username_password_auth.EncData)
 	valid_password := bytes.Equal(password_copy, source_key[:16])
 	if !valid_password {
-		return nil, errors.New("Invalid username or password")
+		return nil, errors.New("invalid username or password")
 	}
 
 	// check for tampered data
@@ -276,7 +276,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 	auth_valid := userlib.HMACEqual(hmac_argon2_password, username_password_auth.HMACData)
 	if !auth_valid {
-		return nil, errors.New("Tampered user's authentication")
+		return nil, errors.New("tampered user's authentication")
 	}
 
 	// Unmarshal user struct auth
@@ -294,7 +294,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 	valid_data := userlib.HMACEqual(hmac_marshal_user_struct, user_struct_auth.HMACData)
 	if !valid_data {
-		return nil, errors.New("Tampered user struct authentication")
+		return nil, errors.New("tampered user struct authentication")
 	}
 
 	// Decrypt user struct
@@ -438,7 +438,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	// check file's existence
 	_, ok := userlib.DatastoreGet(file_uuid)
 	if !ok {
-		return errors.New("File does not exist error")
+		return errors.New("file does not exist error")
 	}
 
 	// get meta_data
@@ -482,7 +482,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 	_, ok := userlib.DatastoreGet(file_uuid)
 	if !ok {
-		return nil, errors.New("File does not exist error")
+		return nil, errors.New("file does not exist error")
 	}
 
 	// get the meta_data
@@ -524,7 +524,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	// check if file exit
 	_, ok := userlib.DatastoreGet(file_uuid)
 	if !ok {
-		return uuid.Nil, errors.New("File does not exist error")
+		return uuid.Nil, errors.New("file does not exist error")
 	}
 
 	// get the meta_data
@@ -689,10 +689,85 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	file_uuid := usernameToUUID(userdata.Username, filename)
 	meta_key := createKeys(userdata.SourceKey, filename)
 
+	if recipientUsername == userdata.Username {
+		return errors.New("cannot revoke access to own file")
+	}
+
 	// check if the file name exist with the user's name space
 	_, ok := userlib.DatastoreGet(file_uuid)
 	if !ok {
 		return errors.New("file does not exist error")
+	}
+
+	// get the meta_data
+	meta_data, err := getMetaData(file_uuid, meta_key)
+	if err != nil {
+		return err
+	}
+
+	// get the file_struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return err
+	}
+
+	// check if the current user is the owner of the file
+	owner_key, err := checkOwnerShip(userdata, meta_data, file_struct, filename)
+	if err != nil { // owner case
+		return err
+	}
+
+	// remove the recipient from the shareWith
+	err = removeRecipientFromShareWith(file_struct, recipientUsername, owner_key)
+	if err != nil {
+		return err
+	}
+
+	// remove recipient from listB
+	err = removeListB(file_struct, recipientUsername)
+	if err != nil {
+		return err
+	}
+
+	// create a new file_key
+	new_file_key := createFileKey()
+	cur_file_key, err := get_file_key(meta_data)
+	if err != nil {
+		return err
+	}
+
+	// re-encrypt the file_content with new key_file
+	err = reEncryptContent(file_struct, cur_file_key, new_file_key)
+	if err != nil {
+		return err
+	}
+
+	// get share_with
+	share_with, err := getShareWith(file_struct, owner_key)
+	if err != nil {
+		return err
+	}
+
+	// update the new key_file location for non-revoked people
+	for username, keyA := range *share_with {
+
+		// create new file_key location
+		new_file_key_uuid, err := save_file_key_recipient(new_file_key, keyA)
+		if err != nil {
+			return nil
+		}
+
+		// update listB
+		err = addListB(file_struct, username, new_file_key_uuid)
+		if err != nil {
+			return nil
+		}
+	}
+
+	// save the file_struct
+	err = saveFileStruct(file_struct, meta_data.FileStructUUID)
+	if err != nil {
+		return nil
 	}
 
 	return nil
@@ -744,26 +819,26 @@ func createKeys(source_key []byte, purpose string) []byte {
 	return derivedKey[:16]
 }
 
-func symEncPassword(password string, argon2_password []byte) []byte {
-	/**
-	 * This function symmetrically encrypt argon2_password using the plain password as key
-	 *
-	 * Parameters:
-	 * - password: The password to be encrypted.
-	 * - argon2_password: The Argon2 hashed password used for encryption key derivation.
-	 *
-	 * Returns:
-	 * - Encrypted password as a byte slice.
-	 */
-	result := userlib.SymEnc([]byte(password), userlib.RandomBytes(16), argon2_password)
-	return result
-}
+// func symEncPassword(password string, argon2_password []byte) []byte {
+// 	/**
+// 	 * This function symmetrically encrypt argon2_password using the plain password as key
+// 	 *
+// 	 * Parameters:
+// 	 * - password: The password to be encrypted.
+// 	 * - argon2_password: The Argon2 hashed password used for encryption key derivation.
+// 	 *
+// 	 * Returns:
+// 	 * - Encrypted password as a byte slice.
+// 	 */
+// 	result := userlib.SymEnc([]byte(password), userlib.RandomBytes(16), argon2_password)
+// 	return result
+// }
 
-func hmacPassword(password string, enc_argon2_password []byte) []byte {
-	result, _ := userlib.HMACEval([]byte(password), enc_argon2_password)
+// func hmacPassword(password string, enc_argon2_password []byte) []byte {
+// 	result, _ := userlib.HMACEval([]byte(password), enc_argon2_password)
 
-	return result
-}
+// 	return result
+// }
 
 // **** Invite Functions ****/
 func createInvite(sharer_username string, file_struct_uuid uuid.UUID, keyA []byte, file_key_uuid uuid.UUID) (invite_ptr *Invite) {
@@ -1004,7 +1079,7 @@ func loadContent(file_struct *FileStruct, file_key []byte) (total_content []byte
 	for curr_uuid != file_struct.FileTail {
 		content_byte, ok := userlib.DatastoreGet(curr_uuid)
 		if !ok {
-			return nil, errors.New("File does not exist error")
+			return nil, errors.New("file does not exist error")
 		}
 		content, next_uuid, err := decryptContent(content_byte, file_key)
 		if err != nil {
@@ -1065,7 +1140,7 @@ func decryptContent(content_byte []byte, file_key []byte) ([]byte, uuid.UUID, er
 	}
 	valid := userlib.HMACEqual(check_content_hmac, file_content.HMACContent)
 	if !valid {
-		return nil, uuid.Nil, errors.New("hmac of the content does not match: " + err.Error())
+		return nil, uuid.Nil, errors.New("hmac of the content does not match")
 	}
 
 	// verify nextUUID
@@ -1075,7 +1150,7 @@ func decryptContent(content_byte []byte, file_key []byte) ([]byte, uuid.UUID, er
 	}
 	valid = userlib.HMACEqual(check_next_uuid_hmac, file_content.HMACnext)
 	if !valid {
-		return nil, uuid.Nil, errors.New("hmac of the next_uuid does not match: " + err.Error())
+		return nil, uuid.Nil, errors.New("hmac of the next_uuid does not match")
 	}
 
 	// decrypt content
@@ -1083,6 +1158,42 @@ func decryptContent(content_byte []byte, file_key []byte) ([]byte, uuid.UUID, er
 
 	return content, file_content.NextUUID, nil
 
+}
+
+func reEncryptContent(file_struct *FileStruct, cur_file_key []byte, new_file_key []byte) (err error) {
+
+	// store the content at the old uuid but encrypt new_file_key
+	cur_uuid := file_struct.FileHead
+
+	for cur_uuid != file_struct.FileTail {
+
+		// get the content byte from datastore
+		content_byte, ok := userlib.DatastoreGet(cur_uuid)
+		if !ok {
+			return errors.New("load content_byte failed")
+		}
+
+		// decrypt content
+		cur_content, next_uuid, err := decryptContent(content_byte, cur_file_key)
+		if err != nil {
+			return err
+		}
+
+		// encrypt content with new_file_key
+		new_auth_byte, err := encryptContent(cur_content, new_file_key, next_uuid)
+		if err != nil {
+			return err
+		}
+
+		// save the new encrypt content to the data store
+		userlib.DatastoreSet(cur_uuid, new_auth_byte)
+
+		// update cur_uuid
+		cur_uuid = next_uuid
+
+	}
+
+	return nil
 }
 
 func deleteContent(file_struct *FileStruct, file_key []byte) (err error) {
@@ -1260,6 +1371,30 @@ func updateShareWith(file_struct *FileStruct, username string, keyA []byte, owne
 
 }
 
+func removeRecipientFromShareWith(file_struct *FileStruct, recipient_username string, owner_key []byte) (err error) {
+
+	// get the shareWith
+	share_with, err := getShareWith(file_struct, owner_key)
+	if err != nil {
+		return err
+	}
+
+	// remove the recipient from the shareWith
+	delete(*share_with, recipient_username)
+
+	// encrypt share_with
+	auth_byte, err := encryptShareWith(share_with, owner_key)
+	if err != nil {
+		return err
+	}
+
+	// update file_struct
+	file_struct.ShareWith = auth_byte
+
+	return nil
+
+}
+
 // func update_share_with(share_with *map[string][]byte, owner_key []byte) error {
 // }
 
@@ -1308,7 +1443,7 @@ func decryptShareWith(auth_byte []byte, owner_key []byte) (share_with_ptr *map[s
 	}
 	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
 	if !valid {
-		return nil, errors.New("share_with hmac does not match" + err.Error())
+		return nil, errors.New("share_with hmac does not match")
 	}
 
 	// decrypt for share_with
@@ -1383,6 +1518,9 @@ func encryptMetaData(meta_data *MetaData, owner_key []byte) (auth_byte []byte, e
 	// encrypt meta_data with owner_key
 	meta_data_enc := userlib.SymEnc(owner_key, userlib.RandomBytes(16), meta_data_byte)
 	hmac, err := userlib.HMACEval(owner_key, meta_data_enc)
+	if err != nil {
+		return nil, errors.New("create hmac for meta_data failed: " + err.Error())
+	}
 
 	// create auth for meta_data
 	var auth Authentication
@@ -1415,7 +1553,7 @@ func decryptMetaData(auth_byte []byte, owner_key []byte) (meta_data_ptr *MetaDat
 	}
 	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
 	if !valid {
-		return nil, errors.New("meta_data hmac does not match" + err.Error())
+		return nil, errors.New("meta_data hmac does not match")
 	}
 
 	// decrypt for meta_data
@@ -1525,6 +1663,9 @@ func encryptFileKey(file_key []byte, keyA []byte) (file_key_enc []byte, err erro
 
 	// marshal auth
 	auth_byte, err := json.Marshal(auth)
+	if err != nil {
+		return nil, errors.New("marshal for file_key auth failed: " + err.Error())
+	}
 
 	return auth_byte, nil
 
@@ -1546,7 +1687,7 @@ func decryptFileKey(auth_byte []byte, keyA []byte) (file_key []byte, err error) 
 	}
 	valid := userlib.HMACEqual(check_hmac, auth.HMACData)
 	if !valid {
-		return nil, errors.New("file_key hmac does not match" + err.Error())
+		return nil, errors.New("file_key hmac does not match")
 	}
 
 	// decrypt for file_key
@@ -1585,7 +1726,7 @@ func getListB(file_struct *FileStruct, username string) (file_key_uuid uuid.UUID
 
 	file_key_uuid, ok := file_struct.ListB[username]
 	if !ok {
-		return uuid.Nil, errors.New(fmt.Sprintf("user %s does not have a file key", username))
+		return uuid.Nil, errors.New("get file_key location for this user failed")
 	}
 
 	return file_key_uuid, nil
