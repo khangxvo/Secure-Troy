@@ -291,7 +291,7 @@ var _ = Describe("Client Unit Tests", func() {
 	})
 
 	Describe("Test Invites Functions", func() {
-		FSpecify("test enc and dec functions", func() {
+		Specify("test enc and dec functions", func() {
 
 			userlib.DebugMsg("create recipient keys")
 			recipient_pub, recipient_piv, err := userlib.PKEKeyGen()
@@ -305,7 +305,7 @@ var _ = Describe("Client Unit Tests", func() {
 			keyA := createKeyA()
 
 			userlib.DebugMsg("create invite")
-			invite := createInvite(bob_username, file_struct_uuid, keyA, createRandomUUID())
+			invite := createInvite(bob_username, file_struct_uuid, keyA, file_struct_uuid)
 
 			userlib.DebugMsg("save invite")
 			invite_uuid, err := saveInvite(invite, recipient_pub, sender_sk)
@@ -323,6 +323,7 @@ var _ = Describe("Client Unit Tests", func() {
 			Expect(invite_copy.Sharer_username).To(Equal(bob_username))
 			Expect(invite_copy.File_struct_uuid).To(Equal(file_struct_uuid))
 			Expect(invite_copy.KeyA).To(Equal(keyA))
+			Expect(invite_copy.File_key_uuid).To(Equal(file_struct_uuid))
 		})
 	})
 
@@ -336,7 +337,7 @@ var _ = Describe("Client Unit Tests", func() {
 			meta_key := createKeys(alice_user.SourceKey, alice_file)
 
 			bob_user, err := InitUser(bob_username, default_password)
-			Expect(0).To(BeNil())
+			Expect(err).To(BeNil())
 
 			userlib.DebugMsg("Create a file")
 			err = alice_user.StoreFile(alice_file, []byte(contentOne))

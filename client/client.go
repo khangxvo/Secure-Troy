@@ -130,9 +130,8 @@ type Authentication struct {
 }
 
 type RSAAuthentication struct {
-	SignPerson           string
 	Enc_sharer_username  []byte
-	Sig_username         []byte
+	Sig_share_username   []byte
 	Enc_file_struct_uuid []byte
 	Sig_file_struct_uuid []byte
 	Enc_keyA             []byte
@@ -759,34 +758,80 @@ func saveInvite(invite_ptr *Invite, recipient_pub_key userlib.PKEEncKey, sender_
 
 func encryptInvite(invite *Invite, recipient_pub_key userlib.PKEEncKey, sharer_sign_key userlib.DSSignKey) (auth_byte []byte, err error) {
 
-	// marshal the invite
-	invite_byte, err := json.Marshal(*invite)
-	if err != nil {
-		return nil, errors.New("marshal invite failed: " + err.Error())
-	}
-
-	// encrypt the invite with recipient's public key
-	enc_invite, err := userlib.PKEEnc(recipient_pub_key, invite_byte)
-	if err != nil {
-		return nil, errors.New("encrypt invite failed: " + err.Error())
-	}
-
-	// sign the enc data
-	sign_data, err := userlib.DSSign(sharer_sign_key, enc_invite)
-	if err != nil {
-		return nil, errors.New("sign inivte failed: " + err.Error())
-	}
-
-	// create an auth for invite
+	// create and rsa auth
 	var auth RSAAuthentication
-	auth.SignPerson = invite.Sharer_username
-	auth.RSAEncData = enc_invite
-	auth.Sig = sign_data
+
+	// marshal sharer_username
+	sharer_username_byte, err := json.Marshal(invite.Sharer_username)
+	if err != nil {
+		return nil, errors.New("marshal sharer_username failed: " + err.Error())
+	}
+	// enc sharer_username
+	enc_sharer_username, err := userlib.PKEEnc(recipient_pub_key, sharer_username_byte)
+	if err != nil {
+		return nil, errors.New("encrypt sharer_username failed: " + err.Error())
+	}
+	// sign sharer_username
+	sig_share_username, err := userlib.DSSign(sharer_sign_key, enc_sharer_username)
+	if err != nil {
+		return nil, errors.New("sign sharer_username failed: " + err.Error())
+	}
+	auth.Enc_sharer_username = enc_sharer_username
+	auth.Sig_share_username = sig_share_username
+
+	// marshal file_struct_uuid
+	file_struct_uuid_byte, err := json.Marshal(invite.File_struct_uuid)
+	if err != nil {
+		return nil, errors.New("marshal file_struct_uuid failed: " + err.Error())
+	}
+	// enc file_struct_uuid
+	enc_file_struct_uuid, err := userlib.PKEEnc(recipient_pub_key, file_struct_uuid_byte)
+	if err != nil {
+		return nil, errors.New("encrypt file_struct_uuid failed: " + err.Error())
+	}
+	// sign file_struct_uuid
+	sig_file_struct_uuid, err := userlib.DSSign(sharer_sign_key, enc_file_struct_uuid)
+	if err != nil {
+		return nil, errors.New("sign file_struct_uuid failed: " + err.Error())
+	}
+	auth.Enc_file_struct_uuid = enc_file_struct_uuid
+	auth.Sig_file_struct_uuid = sig_file_struct_uuid
+
+	//enc keyA
+	enc_keyA, err := userlib.PKEEnc(recipient_pub_key, invite.KeyA)
+	if err != nil {
+		return nil, errors.New("encrypt keyA failed: " + err.Error())
+	}
+	// sign keyA
+	sig_keyA, err := userlib.DSSign(sharer_sign_key, enc_keyA)
+	if err != nil {
+		return nil, errors.New("sign keyA failed: " + err.Error())
+	}
+	auth.Enc_keyA = enc_keyA
+	auth.Sig_keyA = sig_keyA
+
+	// marshal file_key_uuid
+	file_key_uuid_byte, err := json.Marshal(invite.File_key_uuid)
+	if err != nil {
+		return nil, errors.New("marshal file_key_uuid failed: " + err.Error())
+	}
+	// enc file_key_uuid
+	enc_file_key_uuid, err := userlib.PKEEnc(recipient_pub_key, file_key_uuid_byte)
+	if err != nil {
+		return nil, errors.New("encrypt file_key_uuid failed: " + err.Error())
+	}
+	// sign file_key_uuid
+	sig_file_key_uuid, err := userlib.DSSign(sharer_sign_key, enc_file_key_uuid)
+	if err != nil {
+		return nil, errors.New("sign file_key_uuid failed: " + err.Error())
+	}
+	auth.Enc_file_key_uuid = enc_file_key_uuid
+	auth.Sig_file_key_uuid = sig_file_key_uuid
 
 	// marshal auth
 	auth_byte, err = json.Marshal(auth)
 	if err != nil {
-		return nil, errors.New("marshal for invite auth failed: " + err.Error())
+		return nil, errors.New("marshal auth failed: " + err.Error())
 	}
 
 	return auth_byte, nil
@@ -801,24 +846,73 @@ func decryptInvite(auth_byte []byte, recipient_priv_key userlib.PKEDecKey, sende
 		return nil, errors.New("unmarshal invite's auth failed: " + err.Error())
 	}
 
-	// verify the enc data
-	err = userlib.DSVerify(sender_verify_key, auth.RSAEncData, auth.Sig)
-	if err != nil {
-		return nil, errors.New("verify invite failed: " + err.Error())
-	}
-
-	// decrypt for invite_byte
-	invite_byte, err := userlib.PKEDec(recipient_priv_key, auth.RSAEncData)
-	if err != nil {
-		return nil, errors.New("decrpyt invite failed: " + err.Error())
-	}
-
-	// unmarshal for invite
 	var invite Invite
-	err = json.Unmarshal(invite_byte, &invite)
+
+	// verify sharer_username
+	err = userlib.DSVerify(sender_verify_key, auth.Enc_sharer_username, auth.Sig_share_username)
 	if err != nil {
-		return nil, errors.New("unmarshal invite failed: " + err.Error())
+		return nil, errors.New("sharer_username is not valid" + err.Error())
 	}
+	// dec sharer_username
+	sharer_username_byte, err := userlib.PKEDec(recipient_priv_key, auth.Enc_sharer_username)
+	if err != nil {
+		return nil, errors.New("decrypt sharer_username failed" + err.Error())
+	}
+	// unmarshal sharer_username
+	var share_username string
+	err = json.Unmarshal(sharer_username_byte, &share_username)
+	if err != nil {
+		return nil, errors.New("unmarshal sharer_username failed" + err.Error())
+	}
+	invite.Sharer_username = share_username
+
+	// verify file_struct_uuid
+	err = userlib.DSVerify(sender_verify_key, auth.Enc_file_struct_uuid, auth.Sig_file_struct_uuid)
+	if err != nil {
+		return nil, errors.New("verify file_struct_uuid failed: " + err.Error())
+	}
+	// dec file_struct_uuid
+	file_struct_uuid_byte, err := userlib.PKEDec(recipient_priv_key, auth.Enc_file_struct_uuid)
+	if err != nil {
+		return nil, errors.New("decrypt file_struct_uuid failed" + err.Error())
+	}
+	// unmarshal file_struct_uuid
+	var file_struct_uuid uuid.UUID
+	err = json.Unmarshal(file_struct_uuid_byte, &file_struct_uuid)
+	if err != nil {
+		return nil, errors.New("unmarshal file_struct_uuid failed" + err.Error())
+	}
+	invite.File_struct_uuid = file_struct_uuid
+
+	// verify keyA
+	err = userlib.DSVerify(sender_verify_key, auth.Enc_keyA, auth.Sig_keyA)
+	if err != nil {
+		return nil, errors.New("verify keyA failed: " + err.Error())
+	}
+	// dec keyA
+	keyA, err := userlib.PKEDec(recipient_priv_key, auth.Enc_keyA)
+	if err != nil {
+		return nil, errors.New("decrypt keyA failed" + err.Error())
+	}
+	invite.KeyA = keyA
+
+	// verify file_key_uuid
+	err = userlib.DSVerify(sender_verify_key, auth.Enc_file_key_uuid, auth.Sig_file_key_uuid)
+	if err != nil {
+		return nil, errors.New("verify file_key_uuid failed: " + err.Error())
+	}
+	// dec file_key_uuid
+	file_key_uuid_byte, err := userlib.PKEDec(recipient_priv_key, auth.Enc_file_key_uuid)
+	if err != nil {
+		return nil, errors.New("decrypt file_key_uuid failed" + err.Error())
+	}
+	// unmarshal file_key_uuid
+	var file_key_uuid uuid.UUID
+	err = json.Unmarshal(file_key_uuid_byte, &file_key_uuid)
+	if err != nil {
+		return nil, errors.New("unmarshal file_key_uuid failed" + err.Error())
+	}
+	invite.File_key_uuid = file_key_uuid
 
 	return &invite, nil
 
