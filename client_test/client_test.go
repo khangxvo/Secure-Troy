@@ -354,6 +354,87 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 
 		})
+
+		Specify("Only the targeted recipient accept the invitation", func() {
+			userlib.DebugMsg("Initializing users Alice, Bob, and Charlie.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			charles, err = client.InitUser("charles", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice storing file %s with content: %s", aliceFile, contentOne)
+			alice.StoreFile(aliceFile, []byte(contentOne))
+			userlib.DebugMsg("Alice creating invite for Bob for file %s", aliceFile)
+			a_to_b, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("should return err if charlie attempt to accept this")
+			err = charles.AcceptInvitation("alice", a_to_b, charlesFile)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Should return err if the targeted recipient passed in the wrong sender name", func() {
+			userlib.DebugMsg("Initializing users Alice, Bob, and Charlie.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice storing file %s with content: %s", aliceFile, contentOne)
+			alice.StoreFile(aliceFile, []byte(contentOne))
+			userlib.DebugMsg("Alice creating invite for Bob for file %s", aliceFile)
+			a_to_b, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Bob passed in the wrong sender name when tried to accept this")
+			err = bob.AcceptInvitation("charlie", a_to_b, bobFile)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("If someone try to overwrite the file, everyone should see new content", func() {
+
+			userlib.DebugMsg("Initializing users Alice, Bob, and Charlie.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			charles, err = client.InitUser("charles", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice storing file %s with content: %s", aliceFile, contentOne)
+			alice.StoreFile(aliceFile, []byte(contentOne))
+			userlib.DebugMsg("Alice creating invite for Bob for file %s", aliceFile)
+			a_to_b, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			userlib.DebugMsg("Bob accepting invite from Alice under filename %s.", bobFile)
+			err = bob.AcceptInvitation("alice", a_to_b, bobFile)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Bob creating invite for Charlie for file %s", bobFile)
+			b_to_c, err := bob.CreateInvitation(bobFile, "charles")
+			Expect(err).To(BeNil())
+			userlib.DebugMsg("Charlie accepting invite from Bob under filename %s.", charlesFile)
+			err = charles.AcceptInvitation("bob", b_to_c, charlesFile)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Charlie overwrite the file %s with %s", charlesFile, contentTwo)
+			err = charles.StoreFile(charlesFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice should see new content")
+			data_a, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data_a).To(Equal([]byte(contentTwo)))
+
+			userlib.DebugMsg("Bob should see new content")
+			data_b, err := bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data_b).To(Equal([]byte(contentTwo)))
+
+		})
+
 	})
 
 	Describe("Basic Tests", func() {

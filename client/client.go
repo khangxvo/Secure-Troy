@@ -588,7 +588,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		}
 
 		// create invite
-		invite := createInvite(userdata.Username, meta_data.FileStructUUID, recipient_key_A, file_key_uuid)
+		invite := createInvite(recipientUsername, meta_data.FileStructUUID, recipient_key_A, file_key_uuid)
 
 		// save the invite
 		invite_uuid, err := saveInvite(invite, recipient_pub_key, userdata.DSSignKey)
@@ -630,10 +630,71 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
+
+	// important variables
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
+
+	// return err if filename has taken
+	_, ok := userlib.DatastoreGet(file_uuid)
+	if ok {
+		return errors.New("file already exists error")
+	}
+
+	// get the invite from data store
+	invite, err := getInvite(userdata, invitationPtr, senderUsername)
+	if err != nil {
+		return err
+	}
+
+	// create a meta_data for the receiver
+	meta_data, err := createMetaData(invite.KeyA, invite.File_struct_uuid, invite.Sharer_username)
+	if err != nil {
+		return err
+	}
+
+	// save meta_data to the data store
+	err = saveMetaData(file_uuid, meta_data, meta_key)
+	if err != nil {
+		return err
+	}
+
+	// get the file_struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return err
+	}
+
+	// update listB with recipient's username's uuid of enc file_key
+	err = addListB(file_struct, invite.Sharer_username, invite.File_key_uuid)
+	if err != nil {
+		return err
+	}
+
+	// save file_struct
+	err = saveFileStruct(file_struct, meta_data.FileStructUUID)
+	if err != nil {
+		return err
+	}
+
+	// delete the accepted invite uuid so it cannot be misused
+	userlib.DatastoreDelete(invitationPtr)
+
 	return nil
 }
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
+
+	// important variables
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
+
+	// check if the file name exist with the user's name space
+	_, ok := userlib.DatastoreGet(file_uuid)
+	if !ok {
+		return errors.New("file does not exist error")
+	}
+
 	return nil
 }
 

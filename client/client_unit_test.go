@@ -46,9 +46,12 @@ var _ = Describe("Client Unit Tests", func() {
 	default_password := "password"
 	alice_username := "alice"
 	bob_username := "bob"
+	charlie_username := "charlie"
 	file_key_A := []byte("keyA")
 	file_key_B := []byte("keyB")
 	alice_file := "fileA"
+	bob_file := "fileB"
+	charlie_file := "fileC"
 	file_KeyA_uuid := createRandomUUID()
 	// source_key_A := createSourceKey(alice_username, default_password)
 	// source_key_B := createSourceKey(bob_username, default_password)
@@ -371,6 +374,77 @@ var _ = Describe("Client Unit Tests", func() {
 			userlib.DebugMsg("%s", keyA2)
 
 			Expect(keyA).ToNot(Equal(keyA2))
+
+		})
+	})
+
+	Describe("Test AcceptInviataion", func() {
+		FSpecify("Test meta_data username after accept inviations", func() {
+			userlib.DebugMsg("Iniializing alice, bob, and charlie")
+			alice_user, err := InitUser(alice_username, default_password)
+			Expect(err).To(BeNil())
+
+			bob_user, err := InitUser(bob_username, default_password)
+			Expect(err).To(BeNil())
+
+			charlie_user, err := InitUser(charlie_username, default_password)
+			Expect(err).To(BeNil())
+
+			alice_file_uuid := usernameToUUID(alice_user.Username, alice_file)
+			bob_file_uuid := usernameToUUID(bob_user.Username, bob_file)
+			charlie_file_uuid := usernameToUUID(charlie_user.Username, charlie_file)
+
+			alice_file_meta_key := createKeys(alice_user.SourceKey, alice_file)
+			bob_file_meta_key := createKeys(bob_user.SourceKey, bob_file)
+			charlie_file_meta_key := createKeys(charlie_user.SourceKey, charlie_file)
+
+			userlib.DebugMsg("Create a file")
+			err = alice_user.StoreFile(alice_file, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			alice_meta_data, err := getMetaData(alice_file_uuid, alice_file_meta_key)
+			Expect(err).To(BeNil())
+			// file_struct_1, err := getFileStruct(alice_meta_data.FileStructUUID)
+			// Expect(err).To(BeNil())
+			// userlib.DebugMsg("file_struct_1  is %s: ", file_struct_1.Owner)
+
+			userlib.DebugMsg("Create inviation from Alice to Bob")
+			bob_invite_ptr, err := alice_user.CreateInvitation(alice_file, bob_user.Username)
+			Expect(err).To(BeNil())
+
+			// file_struct_2, err := getFileStruct(alice_meta_data.FileStructUUID)
+			// Expect(err).To(BeNil())
+			// userlib.DebugMsg("file_struct_2 Owner is %s: ", file_struct_2.Owner)
+
+			userlib.DebugMsg("Bob accepts the invitation")
+			err = bob_user.AcceptInvitation(alice_user.Username, bob_invite_ptr, bob_file)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create invitation from Bob to Charlie")
+			charlie_invite_ptr, err := bob_user.CreateInvitation(bob_file, charlie_user.Username)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Charlie accept the inviaton")
+			err = charlie_user.AcceptInvitation(bob_user.Username, charlie_invite_ptr, charlie_file)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Get the meta_data for all 3 users")
+			bob_meta_data, err := getMetaData(bob_file_uuid, bob_file_meta_key)
+			Expect(err).To(BeNil())
+			charlie_meta_data, err := getMetaData(charlie_file_uuid, charlie_file_meta_key)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice meta_data.username should be %s", alice_username)
+			Expect(alice_meta_data.Username).To(Equal(alice_username))
+			userlib.DebugMsg("Bob meta_data.username should be %s", bob_username)
+			Expect(bob_meta_data.Username).To(Equal(bob_username))
+			userlib.DebugMsg("Charlie meta_data.username should be %s", bob_username)
+			Expect(charlie_meta_data.Username).To(Equal(bob_username))
+
+			userlib.DebugMsg("all meta_data.FileStructUUID should be the same")
+			Expect(alice_meta_data.FileStructUUID).To(Equal(bob_meta_data.FileStructUUID))
+			Expect(alice_meta_data.FileStructUUID).To(Equal(charlie_meta_data.FileStructUUID))
+			Expect(bob_meta_data.FileStructUUID).To(Equal(charlie_meta_data.FileStructUUID))
 
 		})
 	})
