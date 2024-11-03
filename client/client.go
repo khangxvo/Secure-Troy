@@ -1379,6 +1379,12 @@ func removeRecipientFromShareWith(file_struct *FileStruct, recipient_username st
 		return err
 	}
 
+	// check if the recipient is in the share_with
+	_, ok := (*share_with)[recipient_username]
+	if !ok {
+		return errors.New("recipient is not in the share_with")
+	}
+
 	// remove the recipient from the shareWith
 	delete(*share_with, recipient_username)
 
@@ -1715,6 +1721,13 @@ func removeListB(file_struct *FileStruct, username string) (err error) { // remo
 	if file_struct.ListB == nil {
 		return errors.New("ListB is nil")
 	}
+
+	// check if the person is in listB
+	_, ok := file_struct.ListB[username]
+	if !ok {
+		return errors.New("user is not in listB")
+	}
+
 	delete(file_struct.ListB, username)
 	return nil
 }
