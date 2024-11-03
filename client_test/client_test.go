@@ -9,6 +9,7 @@ import (
 	_ "encoding/hex"
 	_ "errors"
 	_ "strconv"
+	"strings"
 	_ "strings"
 	"testing"
 
@@ -600,6 +601,89 @@ var _ = Describe("Client Tests", func() {
 
 			err = charles.AppendToFile(charlesFile, []byte(contentTwo))
 			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Test Bandwidth", func() {
+			userlib.DebugMsg("Initializing users Alice and Bob")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Alice storing file %s with content: %s", aliceFile, contentOne)
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			measureBandwidth := func(probe func()) (bandwidth int) {
+				before := userlib.DatastoreGetBandwidth()
+				probe()
+				after := userlib.DatastoreGetBandwidth()
+				return after - before
+			}
+
+			userlib.DebugMsg("Test Alice append '%s' 10000 times", contentTwo)
+			i := 0
+			limit := 100
+			var bw0 int
+			var bw10 int
+			var bw100 int
+			for i < limit {
+				if i == 0 {
+					bw0 = measureBandwidth(func() {
+						err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				} else if i == (limit / 2) {
+					bw10 = measureBandwidth(func() {
+						err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				} else if i == limit-1 {
+					bw100 = measureBandwidth(func() {
+						err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				} else {
+					err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+					Expect(err).To(BeNil())
+				}
+				i++
+			}
+
+			userlib.DebugMsg("All bandwith should have the same value")
+			userlib.DebugMsg("bw0 is '%d', bw1000 is '%d',  bw10000 is '%d'", bw0, bw10, bw100)
+			Expect(bw0).To(Equal(bw10))
+			Expect(bw10).To(Equal(bw100))
+
+			a_file_res := contentOne + strings.Repeat(contentTwo, limit)
+			userlib.DebugMsg("Alice load her file")
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(a_file_res)))
+
+			userlib.DebugMsg("Alice create an invite to Bob")
+			invite, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("bob accept the invite")
+			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).To(BeNil())
+
+			// userlib.DebugMsg("Bob's append time should be the same as Alice")
+			// bwBob := measureBandwidth(func() {
+			// 	err = bob.AppendToFile(bobFile, []byte(contentTwo))
+			// 	Expect(err).To(BeNil())
+			// })
+			// Expect(bwBob).To(Equal(bw0))
+
+			err = bob.AppendToFile(bobFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Bob load the file")
+			data, err = bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(a_file_res + contentTwo)))
+
 		})
 
 	})

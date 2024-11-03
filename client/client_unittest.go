@@ -41,6 +41,9 @@ func TestSetupAndExecution(t *testing.T) {
 }
 
 const contentOne = "Bitcoin is Nick's favorite "
+const contentTwo = "digital "
+const contentThree = "cryptocurrency!"
+const longMessage = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."
 
 var _ = Describe("Client Unit Tests", func() {
 	default_password := "password"
@@ -447,6 +450,54 @@ var _ = Describe("Client Unit Tests", func() {
 			Expect(bob_meta_data.FileStructUUID).To(Equal(charlie_meta_data.FileStructUUID))
 
 		})
+	})
+
+	Describe("Test bandwidth", func() {
+
+		Specify("Test bandwidth for append file", func() {
+
+			userlib.DebugMsg("Iniializing alice")
+			alice_user, err := InitUser(alice_username, default_password)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create a file")
+			err = alice_user.StoreFile(alice_file, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Append to alice_file 10,000 times")
+			i := 0
+			var bw0 int
+			var bw1000 int
+			var bw10000 int
+			for i < 10000 {
+				if i == 0 {
+					bw0 = measureBandwith(func() {
+						err = alice_user.AppendToFile(alice_file, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				} else if i == 1000 {
+					bw1000 = measureBandwith(func() {
+						err = alice_user.AppendToFile(alice_file, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				} else if i == 10000-1 {
+					bw10000 = measureBandwith(func() {
+						err = alice_user.AppendToFile(alice_file, []byte(contentTwo))
+						Expect(err).To(BeNil())
+					})
+				}
+				err = alice_user.AppendToFile(alice_file, []byte(contentTwo))
+				Expect(err).To(BeNil())
+				i++
+			}
+
+			userlib.DebugMsg("All bandwith should have the same value")
+			userlib.DebugMsg("bw0 is '%d', bw1000 is '%d',  bw10000 is '%d'", bw0, bw1000, bw10000)
+			Expect(bw0).To(Equal(bw1000))
+			Expect(bw1000).To(Equal(bw10000))
+
+		})
+
 	})
 
 })

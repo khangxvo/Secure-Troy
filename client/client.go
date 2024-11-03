@@ -1776,3 +1776,10 @@ func marshal_sign_key(sign_key userlib.DSSignKey) ([]byte, error) {
 	}
 	return sign_key_byte, nil
 }
+
+func measureBandwith(probe func()) (bandwidth int) {
+	before := userlib.DatastoreGetBandwidth()
+	probe()
+	after := userlib.DatastoreGetBandwidth()
+	return after - before
+}
