@@ -263,6 +263,72 @@ var _ = Describe("Client Tests", func() {
 		})
 	})
 
+	Describe("CreateInvitation Test", func() {
+		Specify("Test user's file does not exist", func() {
+			userlib.DebugMsg("Initializing user Alice and Bob.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create Invitation on non-exist file")
+			_, err = alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Test tampered Alice's meta_data or file_struct", func() {
+			userlib.DebugMsg("Initializing user Alice and Bob")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Tampering alice's meta_data and file_struct")
+			userlib.DatastoreClear()
+
+			userlib.DebugMsg("Create Invitation on tampered file")
+			_, err = alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+
+		})
+
+		Specify("Test create invitation with non-exist recipient", func() {
+
+			userlib.DebugMsg("Initializing user Alice")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create Invitation on non-exist recipient")
+			_, err = alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+
+		})
+
+		Specify("Test createInvitation on user already had access", func() {
+			userlib.DebugMsg("Initializing user Alice")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create Invitation on alice")
+			_, err = alice.CreateInvitation(aliceFile, "alice")
+			Expect(err).ToNot(BeNil())
+		})
+	})
+
 	Describe("Sharing tests", func() {
 		Specify("Tampered invitation", func() {
 			userlib.DebugMsg("Initializing users Alice and Bob.")

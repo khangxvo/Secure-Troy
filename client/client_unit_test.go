@@ -40,6 +40,8 @@ func TestSetupAndExecution(t *testing.T) {
 	RunSpecs(t, "Client Unit Tests")
 }
 
+const contentOne = "Bitcoin is Nick's favorite "
+
 var _ = Describe("Client Unit Tests", func() {
 	default_password := "password"
 	alice_username := "alice"
@@ -286,6 +288,90 @@ var _ = Describe("Client Unit Tests", func() {
 
 		})
 
+	})
+
+	Describe("Test Invites Functions", func() {
+		FSpecify("test enc and dec functions", func() {
+
+			userlib.DebugMsg("create recipient keys")
+			recipient_pub, recipient_piv, err := userlib.PKEKeyGen()
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("create sender keys")
+			sender_sk, sender_vk, err := userlib.DSKeyGen()
+			Expect(err).To(BeNil())
+
+			file_struct_uuid := createRandomUUID()
+			keyA := createKeyA()
+
+			userlib.DebugMsg("create invite")
+			invite := createInvite(bob_username, file_struct_uuid, keyA, createRandomUUID())
+
+			userlib.DebugMsg("save invite")
+			invite_uuid, err := saveInvite(invite, recipient_pub, sender_sk)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("get the invite auth byte from database")
+			auth_byte, ok := userlib.DatastoreGet(invite_uuid)
+			Expect(ok).To(BeTrue())
+
+			userlib.DebugMsg("decrypt to get the invite")
+			invite_copy, err := decryptInvite(auth_byte, recipient_piv, sender_vk)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("check all fields of invite_copy")
+			Expect(invite_copy.Sharer_username).To(Equal(bob_username))
+			Expect(invite_copy.File_struct_uuid).To(Equal(file_struct_uuid))
+			Expect(invite_copy.KeyA).To(Equal(keyA))
+		})
+	})
+
+	Describe("Test createInvitation", func() {
+		Specify("Test create multiple invitation on the same person", func() {
+			userlib.DebugMsg("Iniializing alice and bob")
+			alice_user, err := InitUser(alice_username, default_password)
+			Expect(err).To(BeNil())
+
+			file_uuid := usernameToUUID(alice_user.Username, alice_file)
+			meta_key := createKeys(alice_user.SourceKey, alice_file)
+
+			bob_user, err := InitUser(bob_username, default_password)
+			Expect(0).To(BeNil())
+
+			userlib.DebugMsg("Create a file")
+			err = alice_user.StoreFile(alice_file, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Create the first inviation on Bob")
+			_, err = alice_user.CreateInvitation(alice_file, bob_user.Username)
+			Expect(err).To(BeNil())
+
+			alice_meta_data, err := getMetaData(file_uuid, meta_key)
+			Expect(err).To(BeNil())
+
+			file_struct, err := getFileStruct(alice_meta_data.FileStructUUID)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("KeyA of 1st invitation is: ")
+			keyA, err := getKeyA(file_struct, meta_key, bob_username)
+			Expect(err).To(BeNil())
+			userlib.DebugMsg("%s", keyA)
+
+			userlib.DebugMsg("Create the second inviation on Bob")
+			_, err = alice_user.CreateInvitation(alice_file, bob_username)
+			Expect(err).To(BeNil())
+
+			file_struct, err = getFileStruct(alice_meta_data.FileStructUUID)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("KeyA of 2st invitation is: ")
+			keyA2, err := getKeyA(file_struct, meta_key, bob_username)
+			Expect(err).To(BeNil())
+			userlib.DebugMsg("%s", keyA2)
+
+			Expect(keyA).ToNot(Equal(keyA2))
+
+		})
 	})
 
 })

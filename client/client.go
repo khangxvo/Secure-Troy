@@ -130,9 +130,15 @@ type Authentication struct {
 }
 
 type RSAAuthentication struct {
-	SignPerson string
-	RSAEncData []byte
-	SignData   []byte
+	SignPerson           string
+	Enc_sharer_username  []byte
+	Sig_username         []byte
+	Enc_file_struct_uuid []byte
+	Sig_file_struct_uuid []byte
+	Enc_keyA             []byte
+	Sig_keyA             []byte
+	Enc_file_key_uuid    []byte
+	Sig_file_key_uuid    []byte
 }
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
@@ -146,14 +152,14 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	user_struct_uuid := usernameToUUID(username, "user-struct")
 	_, ok := userlib.DatastoreGet(user_struct_uuid)
 	if ok {
-		err = errors.New("user existed error")
+		err = errors.New("user already existed")
 		return nil, err
 	}
 
 	username_password_uuid := usernameToUUID(username, "password")
 	_, ok = userlib.DatastoreGet(username_password_uuid)
 	if ok {
-		err = errors.New("user existed error")
+		err = errors.New("user already existed")
 		return nil, err
 	}
 
@@ -185,14 +191,20 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, errors.New("DSKey generation error: " + err.Error())
 	}
-	userlib.KeystoreSet(username+"/verify-key", ds_verify_key)
+	err = userlib.KeystoreSet(username+"/verify-key", ds_verify_key)
+	if err != nil {
+		return nil, errors.New("cannot set verify key: " + err.Error())
+	}
 
 	// RSA Key
 	rsa_pub_key, rsa_priv_key, err := userlib.PKEKeyGen()
 	if err != nil {
 		return nil, errors.New("RSAKey generation error: " + err.Error())
 	}
-	userlib.KeystoreSet(username+"/rsa-pub", rsa_pub_key)
+	err = userlib.KeystoreSet(username+"/rsa-pub", rsa_pub_key)
+	if err != nil {
+		return nil, errors.New("cannot set public key: " + err.Error())
+	}
 
 	var userdata User
 	userdata.Username = username
@@ -316,12 +328,10 @@ type FileContent struct {
 }
 
 type Invite struct {
-	Owner           string
-	HmacOwner       []byte
-	FileStruct_uuid uuid.UUID
-	Hmac_UUID       []byte
-	EncFileKey      []byte //enc with rsa
-	Signature       []byte
+	Sharer_username  string
+	File_struct_uuid uuid.UUID
+	KeyA             []byte //enc with rsa
+	File_key_uuid    uuid.UUID
 }
 
 type MetaData struct {
@@ -506,9 +516,118 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 }
 
-func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
-	invitationPtr uuid.UUID, err error) {
-	return
+func (userdata *User) CreateInvitation(filename string, recipientUsername string) (invitationPtr uuid.UUID, err error) {
+
+	// important variables
+	file_uuid := usernameToUUID(userdata.Username, filename)
+	meta_key := createKeys(userdata.SourceKey, filename)
+
+	// check if file exit
+	_, ok := userlib.DatastoreGet(file_uuid)
+	if !ok {
+		return uuid.Nil, errors.New("File does not exist error")
+	}
+
+	// get the meta_data
+	// this get the same result as call DataStoreGet but I will check for tampered meta_data
+	// and return a meta data
+	meta_data, err := getMetaData(file_uuid, meta_key)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// get file_struct
+	file_struct, err := getFileStruct(meta_data.FileStructUUID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// get file_key
+	file_key, err := get_file_key(meta_data)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// check if recipient exist
+	recipient_struct_uuid := usernameToUUID(recipientUsername, "user-struct")
+	_, ok = userlib.DatastoreGet(recipient_struct_uuid)
+	if !ok {
+		err = errors.New("recipient does not exist")
+		return uuid.Nil, err
+	}
+
+	// check if the recipient had access to the file
+	_, err = getListB(file_struct, recipientUsername)
+	if err == nil {
+		return uuid.Nil, errors.New("recipient already had access to the file")
+	}
+
+	// get recipient pub key
+	recipient_pub_key, ok := userlib.KeystoreGet(recipientUsername + "/rsa-pub")
+	if !ok {
+		return uuid.Nil, errors.New("cannot find recipient pub key")
+	}
+
+	// check if the current user is the owner of the file
+	owner_key, err := checkOwnerShip(userdata, meta_data, file_struct, filename)
+	if err == nil { // owner case
+
+		// create new keyA for the recipient
+		recipient_key_A := createKeyA()
+
+		// save keyA to shareWith, and when recipient accept the invite, they add
+		// their username and uuid of enc key_file to listB
+		err = updateShareWith(file_struct, recipientUsername, recipient_key_A, owner_key)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		// save the file_key and put the uuid of file_key to invite
+		file_key_uuid, err := save_file_key_recipient(file_key, recipient_key_A)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		// create invite
+		invite := createInvite(userdata.Username, meta_data.FileStructUUID, recipient_key_A, file_key_uuid)
+
+		// save the invite
+		invite_uuid, err := saveInvite(invite, recipient_pub_key, userdata.DSSignKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		invitationPtr = invite_uuid
+
+	} else { // non-owner case
+
+		// they just copy the access they have and pass it to the recipient
+
+		// create the invite
+		file_key_uuid, err := getListB(file_struct, meta_data.Username)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		invite := createInvite(meta_data.Username, meta_data.FileStructUUID, meta_data.KeyA, file_key_uuid)
+
+		// save the invite
+		invite_uuid, err := saveInvite(invite, recipient_pub_key, userdata.DSSignKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		invitationPtr = invite_uuid
+
+	}
+
+	// save file struc here
+	err = saveFileStruct(file_struct, meta_data.FileStructUUID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	return invitationPtr, nil
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
@@ -584,6 +703,125 @@ func hmacPassword(password string, enc_argon2_password []byte) []byte {
 	result, _ := userlib.HMACEval([]byte(password), enc_argon2_password)
 
 	return result
+}
+
+// **** Invite Functions ****/
+func createInvite(sharer_username string, file_struct_uuid uuid.UUID, keyA []byte, file_key_uuid uuid.UUID) (invite_ptr *Invite) {
+	var invite Invite
+	invite.Sharer_username = sharer_username
+	invite.File_struct_uuid = file_struct_uuid
+	invite.KeyA = keyA
+	invite.File_key_uuid = file_key_uuid
+
+	return &invite
+}
+
+func getInvite(userdata *User, invitation_uuid uuid.UUID, sender_username string) (invite_ptr *Invite, err error) {
+
+	// get the auth_byte from the datastore
+	auth_byte, ok := userlib.DatastoreGet(invitation_uuid)
+	if !ok {
+		return nil, errors.New("load invite auth_byte from data store failed")
+	}
+
+	// get the sender verify key
+	sender_vk, ok := userlib.KeystoreGet(sender_username + "/verify-key")
+	if !ok {
+		return nil, errors.New("sender verify key not found")
+	}
+
+	// decrypt invite
+	invite_ptr, err = decryptInvite(auth_byte, userdata.PKEDecKey, sender_vk)
+	if err != nil {
+		return nil, err
+	}
+
+	return invite_ptr, nil
+}
+
+func saveInvite(invite_ptr *Invite, recipient_pub_key userlib.PKEEncKey, sender_sign_key userlib.DSSignKey) (invite_uuid uuid.UUID, err error) {
+
+	// create random uuid
+	invite_uuid = createRandomUUID()
+
+	// enc the invite
+	auth_byte, err := encryptInvite(invite_ptr, recipient_pub_key, sender_sign_key)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// save the invite to the data store
+	userlib.DatastoreSet(invite_uuid, auth_byte)
+
+	return invite_uuid, nil
+
+}
+
+func encryptInvite(invite *Invite, recipient_pub_key userlib.PKEEncKey, sharer_sign_key userlib.DSSignKey) (auth_byte []byte, err error) {
+
+	// marshal the invite
+	invite_byte, err := json.Marshal(*invite)
+	if err != nil {
+		return nil, errors.New("marshal invite failed: " + err.Error())
+	}
+
+	// encrypt the invite with recipient's public key
+	enc_invite, err := userlib.PKEEnc(recipient_pub_key, invite_byte)
+	if err != nil {
+		return nil, errors.New("encrypt invite failed: " + err.Error())
+	}
+
+	// sign the enc data
+	sign_data, err := userlib.DSSign(sharer_sign_key, enc_invite)
+	if err != nil {
+		return nil, errors.New("sign inivte failed: " + err.Error())
+	}
+
+	// create an auth for invite
+	var auth RSAAuthentication
+	auth.SignPerson = invite.Sharer_username
+	auth.RSAEncData = enc_invite
+	auth.Sig = sign_data
+
+	// marshal auth
+	auth_byte, err = json.Marshal(auth)
+	if err != nil {
+		return nil, errors.New("marshal for invite auth failed: " + err.Error())
+	}
+
+	return auth_byte, nil
+}
+
+func decryptInvite(auth_byte []byte, recipient_priv_key userlib.PKEDecKey, sender_verify_key userlib.DSVerifyKey) (invite_ptr *Invite, err error) {
+
+	// unmarshal the auth
+	var auth RSAAuthentication
+	err = json.Unmarshal(auth_byte, &auth)
+	if err != nil {
+		return nil, errors.New("unmarshal invite's auth failed: " + err.Error())
+	}
+
+	// verify the enc data
+	err = userlib.DSVerify(sender_verify_key, auth.RSAEncData, auth.Sig)
+	if err != nil {
+		return nil, errors.New("verify invite failed: " + err.Error())
+	}
+
+	// decrypt for invite_byte
+	invite_byte, err := userlib.PKEDec(recipient_priv_key, auth.RSAEncData)
+	if err != nil {
+		return nil, errors.New("decrpyt invite failed: " + err.Error())
+	}
+
+	// unmarshal for invite
+	var invite Invite
+	err = json.Unmarshal(invite_byte, &invite)
+	if err != nil {
+		return nil, errors.New("unmarshal invite failed: " + err.Error())
+	}
+
+	return &invite, nil
+
 }
 
 func saveContent(file_struct *FileStruct, content []byte, file_key []byte) (err error) {
@@ -1073,6 +1311,21 @@ func save_file_key(file_key []byte, keyA []byte, username string, file_struct *F
 	return nil
 }
 
+func save_file_key_recipient(file_key []byte, keyA []byte) (file_key_uuid uuid.UUID, err error) {
+
+	file_key_uuid = createRandomUUID()
+
+	// save file_key to the datastore
+	auth_byte, err := encryptFileKey(file_key, keyA)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	userlib.DatastoreSet(file_key_uuid, auth_byte)
+
+	return file_key_uuid, nil
+
+}
+
 func get_file_key(meta_data *MetaData) (file_key []byte, err error) {
 
 	// get the file struct
@@ -1217,4 +1470,13 @@ func checkOwnerShip(userdata *User, meta_data *MetaData, file_truct *FileStruct,
 
 func createRandomUUID() uuid.UUID {
 	return uuid.New()
+}
+
+func marshal_sign_key(sign_key userlib.DSSignKey) ([]byte, error) {
+	// marshal the sign key
+	sign_key_byte, err := json.Marshal(sign_key)
+	if err != nil {
+		return nil, errors.New("marshal sign key failed: " + err.Error())
+	}
+	return sign_key_byte, nil
 }
