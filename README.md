@@ -27,3 +27,5 @@ Partner 2 Email (if applicable):
 Also add a link to this repo below (should start with https://github.com/cs161-students/).
 
 Link to this Github repo:
+
+## Main Functions
